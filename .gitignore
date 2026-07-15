@@ -1,0 +1,26 @@
+# ============================================================
+#  Delphi / RAD Studio build output & IDE artifacts
+# ============================================================
+Win32/
+Win64/
+__history/
+__recovery/
+__astcache/
+*.dcu
+*.o
+*.obj
+*.map
+*.rsm
+*.drc
+*.local
+*.identcache
+*.projdata
+*.tvsconfig
+*.dsk
+*.stat
+*.~*
+*.bak
+
+# Stray editor backups
+*.pas.old
+*.pas.new

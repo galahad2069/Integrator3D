@@ -1,0 +1,1165 @@
+object OscForm: TOscForm
+  Left = 0
+  Top = 0
+  BorderIcons = [biSystemMenu]
+  BorderStyle = bsSingle
+  Caption = 'Osculating elements'
+  ClientHeight = 373
+  ClientWidth = 294
+  Color = clBtnFace
+  Font.Charset = DEFAULT_CHARSET
+  Font.Color = clWindowText
+  Font.Height = -12
+  Font.Name = 'Segoe UI'
+  Font.Style = []
+  FormStyle = fsStayOnTop
+  Position = poScreenCenter
+  OnClose = FormClose
+  OnCreate = FormCreate
+  TextHeight = 15
+  object TargetBox: TComboBox
+    Left = 0
+    Top = 0
+    Width = 294
+    Height = 23
+    Hint = '<select target>'
+    Align = alTop
+    Style = csDropDownList
+    DropDownCount = 11
+    Font.Charset = DEFAULT_CHARSET
+    Font.Color = clWindowText
+    Font.Height = -12
+    Font.Name = 'Segoe UI'
+    Font.Style = []
+    ParentFont = False
+    ParentShowHint = False
+    ShowHint = True
+    TabOrder = 0
+    TextHint = '<select target>'
+    OnDrawItem = ComboDrawItem
+  end
+  object CenterBox: TComboBox
+    Left = 0
+    Top = 23
+    Width = 294
+    Height = 23
+    Hint = '<select center>'
+    Align = alTop
+    Style = csDropDownList
+    DropDownCount = 12
+    Font.Charset = DEFAULT_CHARSET
+    Font.Color = clWindowText
+    Font.Height = -12
+    Font.Name = 'Segoe UI'
+    Font.Style = []
+    ParentFont = False
+    ParentShowHint = False
+    ShowHint = True
+    TabOrder = 1
+    TextHint = '<select center>'
+    OnDrawItem = ComboDrawItem
+    Items.Strings = (
+      'Solar System BC')
+  end
+  object FrameBox: TComboBox
+    Left = 0
+    Top = 46
+    Width = 294
+    Height = 23
+    Hint = '<select reference frame>'
+    Align = alTop
+    Style = csDropDownList
+    DropDownCount = 6
+    Font.Charset = DEFAULT_CHARSET
+    Font.Color = clWindowText
+    Font.Height = -12
+    Font.Name = 'Segoe UI'
+    Font.Style = []
+    ParentFont = False
+    ParentShowHint = False
+    ShowHint = True
+    TabOrder = 2
+    TextHint = '<select reference frame>'
+    OnDrawItem = ComboDrawItem
+    Items.Strings = (
+      'ICRF (J2000 Equatorial)'
+      'J2000 Ecliptical')
+  end
+  object Panel_All: TPanel
+    Left = 0
+    Top = 69
+    Width = 294
+    Height = 304
+    Align = alClient
+    BevelOuter = bvNone
+    TabOrder = 3
+    ExplicitWidth = 288
+    ExplicitHeight = 287
+    object Splitter1: TSplitter
+      Left = 75
+      Top = 0
+      Height = 304
+      ExplicitLeft = 120
+      ExplicitTop = 112
+      ExplicitHeight = 100
+    end
+    object Splitter2: TSplitter
+      Left = 216
+      Top = 0
+      Height = 304
+      Align = alRight
+      ExplicitLeft = 160
+      ExplicitTop = 152
+      ExplicitHeight = 100
+    end
+    object Panel_Names: TPanel
+      Left = 0
+      Top = 0
+      Width = 75
+      Height = 304
+      Align = alLeft
+      Constraints.MaxWidth = 100
+      Constraints.MinWidth = 50
+      Font.Charset = DEFAULT_CHARSET
+      Font.Color = clWindowText
+      Font.Height = -11
+      Font.Name = 'Courier New'
+      Font.Style = []
+      ParentFont = False
+      TabOrder = 0
+      ExplicitHeight = 287
+      object Panel_Name_Header: TPanel
+        Left = 1
+        Top = 1
+        Width = 73
+        Height = 20
+        Align = alTop
+        Caption = 'Element:'
+        TabOrder = 0
+      end
+      object Name_Ecc: TPanel
+        AlignWithMargins = True
+        Left = 1
+        Top = 271
+        Width = 65
+        Height = 16
+        Hint = 'Eccentric/parabolic/hyperbolic anomaly'
+        Margins.Left = 0
+        Margins.Top = 0
+        Margins.Right = 8
+        Margins.Bottom = 0
+        Align = alBottom
+        Alignment = taRightJustify
+        BevelOuter = bvNone
+        Caption = 'Ecc:'
+        Padding.Right = 8
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 17
+        ExplicitTop = 254
+      end
+      object Name_e: TPanel
+        AlignWithMargins = True
+        Left = 1
+        Top = 21
+        Width = 65
+        Height = 16
+        Hint = 'Eccentricity'
+        Margins.Left = 0
+        Margins.Top = 0
+        Margins.Right = 8
+        Margins.Bottom = 0
+        Align = alTop
+        Alignment = taRightJustify
+        BevelOuter = bvNone
+        BorderWidth = 1
+        Caption = 'e:'
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 1
+      end
+      object Name_TPP: TPanel
+        AlignWithMargins = True
+        Left = 1
+        Top = 101
+        Width = 65
+        Height = 16
+        Hint = 'Time of periapsis passage (TDB)'
+        Margins.Left = 0
+        Margins.Top = 0
+        Margins.Right = 8
+        Margins.Bottom = 0
+        Align = alTop
+        Alignment = taRightJustify
+        BevelOuter = bvNone
+        Caption = 'TPP:'
+        Padding.Right = 8
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 6
+      end
+      object Name_Incl: TPanel
+        AlignWithMargins = True
+        Left = 1
+        Top = 85
+        Width = 65
+        Height = 16
+        Hint = 'Inclination'
+        Margins.Left = 0
+        Margins.Top = 0
+        Margins.Right = 8
+        Margins.Bottom = 0
+        Align = alTop
+        Alignment = taRightJustify
+        BevelOuter = bvNone
+        Caption = 'Incl:'
+        Padding.Right = 8
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 5
+      end
+      object Name_Node: TPanel
+        AlignWithMargins = True
+        Left = 1
+        Top = 69
+        Width = 65
+        Height = 16
+        Hint = 'Argument of ascending node'
+        Margins.Left = 0
+        Margins.Top = 0
+        Margins.Right = 8
+        Margins.Bottom = 0
+        Align = alTop
+        Alignment = taRightJustify
+        BevelOuter = bvNone
+        Caption = 'Node:'
+        Padding.Right = 8
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 4
+      end
+      object Name_Peri: TPanel
+        AlignWithMargins = True
+        Left = 1
+        Top = 53
+        Width = 65
+        Height = 16
+        Hint = 'Argument of periapsis'
+        Margins.Left = 0
+        Margins.Top = 0
+        Margins.Right = 8
+        Margins.Bottom = 0
+        Align = alTop
+        Alignment = taRightJustify
+        BevelOuter = bvNone
+        Caption = 'Peri:'
+        Padding.Right = 8
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 3
+      end
+      object Name_q: TPanel
+        AlignWithMargins = True
+        Left = 1
+        Top = 37
+        Width = 65
+        Height = 16
+        Hint = 'Periapsis distance'
+        Margins.Left = 0
+        Margins.Top = 0
+        Margins.Right = 8
+        Margins.Bottom = 0
+        Align = alTop
+        Alignment = taRightJustify
+        BevelOuter = bvNone
+        Caption = 'q:'
+        Padding.Right = 8
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 2
+      end
+      object Name_Mean: TPanel
+        AlignWithMargins = True
+        Left = 1
+        Top = 255
+        Width = 65
+        Height = 16
+        Hint = 'Mean anomaly'
+        Margins.Left = 0
+        Margins.Top = 0
+        Margins.Right = 8
+        Margins.Bottom = 0
+        Align = alBottom
+        Alignment = taRightJustify
+        BevelOuter = bvNone
+        Caption = 'Mean:'
+        Padding.Right = 8
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 16
+        ExplicitTop = 238
+      end
+      object Name_True: TPanel
+        AlignWithMargins = True
+        Left = 1
+        Top = 239
+        Width = 65
+        Height = 16
+        Hint = 'True anomaly'
+        Margins.Left = 0
+        Margins.Top = 0
+        Margins.Right = 8
+        Margins.Bottom = 0
+        Align = alBottom
+        Alignment = taRightJustify
+        BevelOuter = bvNone
+        Caption = 'True:'
+        Padding.Right = 8
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 15
+        ExplicitTop = 222
+      end
+      object Name_r: TPanel
+        AlignWithMargins = True
+        Left = 1
+        Top = 207
+        Width = 65
+        Height = 16
+        Hint = 'Magnitude of position vector'
+        Margins.Left = 0
+        Margins.Top = 0
+        Margins.Right = 8
+        Margins.Bottom = 0
+        Align = alBottom
+        Alignment = taRightJustify
+        BevelOuter = bvNone
+        Caption = 'r:'
+        Padding.Right = 8
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 13
+        ExplicitTop = 190
+      end
+      object Name_Epoch: TPanel
+        AlignWithMargins = True
+        Left = 1
+        Top = 191
+        Width = 65
+        Height = 16
+        Hint = 'Epoch of osculating elements (TDB)'
+        Margins.Left = 0
+        Margins.Top = 0
+        Margins.Right = 8
+        Margins.Bottom = 0
+        Align = alBottom
+        Alignment = taRightJustify
+        BevelOuter = bvNone
+        Caption = 'Epoch:'
+        Padding.Right = 8
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 12
+        ExplicitTop = 174
+      end
+      object Name_Energy: TPanel
+        AlignWithMargins = True
+        Left = 1
+        Top = 181
+        Width = 65
+        Height = 16
+        Hint = 'Specific orbital energy'
+        Margins.Left = 0
+        Margins.Top = 0
+        Margins.Right = 8
+        Margins.Bottom = 0
+        Align = alTop
+        Alignment = taRightJustify
+        BevelOuter = bvNone
+        Caption = 'Energy:'
+        Padding.Right = 8
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 11
+      end
+      object Name_h: TPanel
+        AlignWithMargins = True
+        Left = 1
+        Top = 165
+        Width = 65
+        Height = 16
+        Hint = 'Specific impulse'
+        Margins.Left = 0
+        Margins.Top = 0
+        Margins.Right = 8
+        Margins.Bottom = 0
+        Align = alTop
+        Alignment = taRightJustify
+        BevelOuter = bvNone
+        Caption = 'h:'
+        Padding.Right = 8
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 10
+      end
+      object Name_Period: TPanel
+        AlignWithMargins = True
+        Left = 1
+        Top = 149
+        Width = 65
+        Height = 16
+        Hint = 'Orbital period'
+        Margins.Left = 0
+        Margins.Top = 0
+        Margins.Right = 8
+        Margins.Bottom = 0
+        Align = alTop
+        Alignment = taRightJustify
+        BevelOuter = bvNone
+        Caption = 'Period:'
+        Padding.Right = 8
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 9
+      end
+      object name_n: TPanel
+        AlignWithMargins = True
+        Left = 1
+        Top = 133
+        Width = 65
+        Height = 16
+        Hint = 'Mean motion'
+        Margins.Left = 0
+        Margins.Top = 0
+        Margins.Right = 8
+        Margins.Bottom = 0
+        Align = alTop
+        Alignment = taRightJustify
+        BevelOuter = bvNone
+        Caption = 'n:'
+        Padding.Right = 8
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 8
+      end
+      object Name_a: TPanel
+        AlignWithMargins = True
+        Left = 1
+        Top = 117
+        Width = 65
+        Height = 16
+        Hint = 'Semi-major axis'
+        Margins.Left = 0
+        Margins.Top = 0
+        Margins.Right = 8
+        Margins.Bottom = 0
+        Align = alTop
+        Alignment = taRightJustify
+        BevelOuter = bvNone
+        Caption = 'a:'
+        Padding.Right = 8
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 7
+      end
+      object Name_Univ: TPanel
+        AlignWithMargins = True
+        Left = 1
+        Top = 287
+        Width = 65
+        Height = 16
+        Hint = 'Universal anomaly'
+        Margins.Left = 0
+        Margins.Top = 0
+        Margins.Right = 8
+        Margins.Bottom = 0
+        Align = alBottom
+        Alignment = taRightJustify
+        BevelOuter = bvNone
+        Caption = 'Univ:'
+        Padding.Right = 8
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 18
+        ExplicitTop = 270
+      end
+      object Name_v: TPanel
+        AlignWithMargins = True
+        Left = 1
+        Top = 223
+        Width = 65
+        Height = 16
+        Hint = 'Magnitude of velocity vector'
+        Margins.Left = 0
+        Margins.Top = 0
+        Margins.Right = 8
+        Margins.Bottom = 0
+        Align = alBottom
+        Alignment = taRightJustify
+        BevelOuter = bvNone
+        Caption = 'v:'
+        Padding.Right = 8
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 14
+        ExplicitTop = 206
+      end
+    end
+    object Panel_Units: TPanel
+      Left = 219
+      Top = 0
+      Width = 75
+      Height = 304
+      Align = alRight
+      Constraints.MaxWidth = 100
+      Constraints.MinWidth = 50
+      Font.Charset = DEFAULT_CHARSET
+      Font.Color = clWindowText
+      Font.Height = -11
+      Font.Name = 'Courier New'
+      Font.Style = []
+      ParentFont = False
+      TabOrder = 1
+      ExplicitLeft = 213
+      ExplicitHeight = 287
+      object Panel_Unit_Header: TPanel
+        Left = 1
+        Top = 1
+        Width = 73
+        Height = 20
+        Align = alTop
+        Caption = 'Unit:'
+        TabOrder = 0
+      end
+      object Unit_r: TButton
+        Left = 1
+        Top = 207
+        Width = 73
+        Height = 16
+        Align = alBottom
+        Caption = 'AU'
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 13
+        OnClick = UnitClick_Dist
+        ExplicitTop = 190
+      end
+      object Unit_Epoch: TButton
+        Left = 1
+        Top = 191
+        Width = 73
+        Height = 16
+        Align = alBottom
+        Caption = 'Gregorian'
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 12
+        OnClick = UnitClick_Epoch
+        ExplicitTop = 174
+      end
+      object Unit_Energy: TButton
+        Left = 1
+        Top = 181
+        Width = 73
+        Height = 16
+        Align = alTop
+        Caption = '(AU/day)^2'
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 11
+        OnClick = UnitClick_Dist2PerTime2
+      end
+      object Unit_h: TButton
+        Left = 1
+        Top = 165
+        Width = 73
+        Height = 16
+        Align = alTop
+        Caption = 'AU^2/day'
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 10
+        OnClick = UnitClick_Dist2PerTime
+      end
+      object Unit_Period: TButton
+        Left = 1
+        Top = 149
+        Width = 73
+        Height = 16
+        Align = alTop
+        Caption = 'day(s)'
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 9
+        OnClick = UnitClick_Time
+      end
+      object Unit_n: TButton
+        Left = 1
+        Top = 133
+        Width = 73
+        Height = 16
+        Align = alTop
+        Caption = 'deg/day'
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 8
+        OnClick = UnitClick_AnglePerTime
+      end
+      object Unit_a: TButton
+        Left = 1
+        Top = 117
+        Width = 73
+        Height = 16
+        Align = alTop
+        Caption = 'AU'
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 7
+        OnClick = UnitClick_Dist
+      end
+      object Unit_TPP: TButton
+        Left = 1
+        Top = 101
+        Width = 73
+        Height = 16
+        Align = alTop
+        Caption = 'Gregorian'
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 6
+        OnClick = UnitClick_Epoch
+      end
+      object Unit_Incl: TButton
+        Left = 1
+        Top = 85
+        Width = 73
+        Height = 16
+        Align = alTop
+        Caption = 'deg'
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 5
+        OnClick = UnitClick_Angle
+      end
+      object Unit_Node: TButton
+        Left = 1
+        Top = 69
+        Width = 73
+        Height = 16
+        Align = alTop
+        Caption = 'deg'
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 4
+        OnClick = UnitClick_Angle
+      end
+      object Unit_Peri: TButton
+        Left = 1
+        Top = 53
+        Width = 73
+        Height = 16
+        Align = alTop
+        Caption = 'deg'
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 3
+        OnClick = UnitClick_Angle
+      end
+      object Unit_q: TButton
+        Left = 1
+        Top = 37
+        Width = 73
+        Height = 16
+        Align = alTop
+        Caption = 'AU'
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 2
+        OnClick = UnitClick_Dist
+      end
+      object Unit_e: TButton
+        Left = 1
+        Top = 21
+        Width = 73
+        Height = 16
+        Align = alTop
+        Enabled = False
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 1
+      end
+      object Unit_True: TButton
+        Left = 1
+        Top = 239
+        Width = 73
+        Height = 16
+        Align = alBottom
+        Caption = 'deg'
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 15
+        OnClick = UnitClick_Angle
+        ExplicitTop = 222
+      end
+      object Unit_Mean: TButton
+        Left = 1
+        Top = 255
+        Width = 73
+        Height = 16
+        Align = alBottom
+        Caption = 'deg'
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 16
+        OnClick = UnitClick_Angle
+        ExplicitTop = 238
+      end
+      object Unit_Ecc: TButton
+        Left = 1
+        Top = 271
+        Width = 73
+        Height = 16
+        Align = alBottom
+        Caption = 'deg'
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 17
+        OnClick = UnitClick_Angle
+        ExplicitTop = 254
+      end
+      object Unit_Univ: TButton
+        Left = 1
+        Top = 287
+        Width = 73
+        Height = 16
+        Align = alBottom
+        Caption = 'Sqrt(AU)'
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 18
+        OnClick = UnitClick_SqrtDist
+        ExplicitTop = 270
+      end
+      object Unit_v: TButton
+        Left = 1
+        Top = 223
+        Width = 73
+        Height = 16
+        Align = alBottom
+        Caption = 'AU/day'
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 14
+        OnClick = UnitClick_Speed
+        ExplicitTop = 206
+      end
+    end
+    object Panel_Values: TPanel
+      Left = 78
+      Top = 0
+      Width = 138
+      Height = 304
+      Margins.Bottom = 0
+      Align = alClient
+      Alignment = taLeftJustify
+      BevelOuter = bvNone
+      Font.Charset = DEFAULT_CHARSET
+      Font.Color = clWindowText
+      Font.Height = -12
+      Font.Name = 'Courier'
+      Font.Style = []
+      ParentFont = False
+      TabOrder = 2
+      ExplicitWidth = 132
+      ExplicitHeight = 287
+      object Panel_Value_Header: TPanel
+        Left = 0
+        Top = 0
+        Width = 138
+        Height = 20
+        Hint = 'Press to switch between momentary and average values'
+        Align = alTop
+        Caption = 'Value:'
+        Font.Charset = DEFAULT_CHARSET
+        Font.Color = clWindowText
+        Font.Height = -11
+        Font.Name = 'Courier New'
+        Font.Style = []
+        ParentFont = False
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 0
+        OnMouseDown = HeaderMouseDown
+        OnMouseUp = HeaderMouseUp
+        ExplicitWidth = 132
+      end
+      object Value_a: TPanel
+        AlignWithMargins = True
+        Left = 8
+        Top = 116
+        Width = 130
+        Height = 16
+        Hint = 'Semi-major axis'
+        Margins.Left = 8
+        Margins.Top = 0
+        Margins.Right = 0
+        Margins.Bottom = 0
+        Align = alTop
+        Alignment = taLeftJustify
+        BevelOuter = bvNone
+        Caption = 'N/A'
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 7
+        ExplicitWidth = 124
+      end
+      object Value_TPP: TPanel
+        AlignWithMargins = True
+        Left = 8
+        Top = 100
+        Width = 130
+        Height = 16
+        Hint = 'Time of periapsis passage (TDB)'
+        Margins.Left = 8
+        Margins.Top = 0
+        Margins.Right = 0
+        Margins.Bottom = 0
+        Align = alTop
+        Alignment = taLeftJustify
+        BevelOuter = bvNone
+        Caption = 'N/A'
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 6
+        ExplicitWidth = 124
+      end
+      object Value_Incl: TPanel
+        AlignWithMargins = True
+        Left = 8
+        Top = 84
+        Width = 130
+        Height = 16
+        Hint = 'Inclination'
+        Margins.Left = 8
+        Margins.Top = 0
+        Margins.Right = 0
+        Margins.Bottom = 0
+        Align = alTop
+        Alignment = taLeftJustify
+        BevelOuter = bvNone
+        Caption = 'N/A'
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 5
+        ExplicitWidth = 124
+      end
+      object Value_Node: TPanel
+        AlignWithMargins = True
+        Left = 8
+        Top = 68
+        Width = 130
+        Height = 16
+        Hint = 'Argument of ascending node'
+        Margins.Left = 8
+        Margins.Top = 0
+        Margins.Right = 0
+        Margins.Bottom = 0
+        Align = alTop
+        Alignment = taLeftJustify
+        BevelOuter = bvNone
+        Caption = 'N/A'
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 4
+        ExplicitWidth = 124
+      end
+      object Value_Peri: TPanel
+        AlignWithMargins = True
+        Left = 8
+        Top = 52
+        Width = 130
+        Height = 16
+        Hint = 'Argument of periapsis'
+        Margins.Left = 8
+        Margins.Top = 0
+        Margins.Right = 0
+        Margins.Bottom = 0
+        Align = alTop
+        Alignment = taLeftJustify
+        BevelOuter = bvNone
+        Caption = 'N/A'
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 3
+        ExplicitWidth = 124
+      end
+      object Value_q: TPanel
+        AlignWithMargins = True
+        Left = 8
+        Top = 36
+        Width = 130
+        Height = 16
+        Hint = 'Periapsis distance'
+        Margins.Left = 8
+        Margins.Top = 0
+        Margins.Right = 0
+        Margins.Bottom = 0
+        Align = alTop
+        Alignment = taLeftJustify
+        BevelOuter = bvNone
+        Caption = 'N/A'
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 2
+        ExplicitWidth = 124
+      end
+      object Value_e: TPanel
+        AlignWithMargins = True
+        Left = 8
+        Top = 20
+        Width = 130
+        Height = 16
+        Hint = 'Eccentricity'
+        Margins.Left = 8
+        Margins.Top = 0
+        Margins.Right = 0
+        Margins.Bottom = 0
+        Align = alTop
+        Alignment = taLeftJustify
+        BevelOuter = bvNone
+        Caption = 'N/A'
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 1
+        ExplicitWidth = 124
+      end
+      object Value_n: TPanel
+        AlignWithMargins = True
+        Left = 8
+        Top = 132
+        Width = 130
+        Height = 16
+        Hint = 'Mean motion'
+        Margins.Left = 8
+        Margins.Top = 0
+        Margins.Right = 0
+        Margins.Bottom = 0
+        Align = alTop
+        Alignment = taLeftJustify
+        BevelOuter = bvNone
+        Caption = 'N/A'
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 8
+        ExplicitWidth = 124
+      end
+      object Value_Period: TPanel
+        AlignWithMargins = True
+        Left = 8
+        Top = 148
+        Width = 130
+        Height = 16
+        Hint = 'Orbital period'
+        Margins.Left = 8
+        Margins.Top = 0
+        Margins.Right = 0
+        Margins.Bottom = 0
+        Align = alTop
+        Alignment = taLeftJustify
+        BevelOuter = bvNone
+        Caption = 'N/A'
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 9
+        ExplicitWidth = 124
+      end
+      object Value_h: TPanel
+        AlignWithMargins = True
+        Left = 8
+        Top = 164
+        Width = 130
+        Height = 16
+        Hint = 'Specific impulse'
+        Margins.Left = 8
+        Margins.Top = 0
+        Margins.Right = 0
+        Margins.Bottom = 0
+        Align = alTop
+        Alignment = taLeftJustify
+        BevelOuter = bvNone
+        Caption = 'N/A'
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 10
+        ExplicitWidth = 124
+      end
+      object Value_Energy: TPanel
+        AlignWithMargins = True
+        Left = 8
+        Top = 180
+        Width = 130
+        Height = 16
+        Hint = 'Specific orbital energy'
+        Margins.Left = 8
+        Margins.Top = 0
+        Margins.Right = 0
+        Margins.Bottom = 0
+        Align = alTop
+        Alignment = taLeftJustify
+        BevelOuter = bvNone
+        Caption = 'N/A'
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 11
+        ExplicitWidth = 124
+      end
+      object Value_Epoch: TPanel
+        AlignWithMargins = True
+        Left = 8
+        Top = 192
+        Width = 130
+        Height = 16
+        Hint = 'Epoch of osculation elements (TDB)'
+        Margins.Left = 8
+        Margins.Top = 0
+        Margins.Right = 0
+        Margins.Bottom = 0
+        Align = alBottom
+        Alignment = taLeftJustify
+        BevelOuter = bvNone
+        Caption = 'N/A'
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 12
+        ExplicitTop = 175
+        ExplicitWidth = 124
+      end
+      object Value_r: TPanel
+        AlignWithMargins = True
+        Left = 8
+        Top = 208
+        Width = 130
+        Height = 16
+        Hint = 'Magnitude of position vector'
+        Margins.Left = 8
+        Margins.Top = 0
+        Margins.Right = 0
+        Margins.Bottom = 0
+        Align = alBottom
+        Alignment = taLeftJustify
+        BevelOuter = bvNone
+        Caption = 'N/A'
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 13
+        ExplicitTop = 191
+        ExplicitWidth = 124
+      end
+      object Value_True: TPanel
+        AlignWithMargins = True
+        Left = 8
+        Top = 240
+        Width = 130
+        Height = 16
+        Hint = 'True anomaly'
+        Margins.Left = 8
+        Margins.Top = 0
+        Margins.Right = 0
+        Margins.Bottom = 0
+        Align = alBottom
+        Alignment = taLeftJustify
+        BevelOuter = bvNone
+        Caption = 'N/A'
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 15
+        ExplicitTop = 223
+        ExplicitWidth = 124
+      end
+      object Value_Mean: TPanel
+        AlignWithMargins = True
+        Left = 8
+        Top = 256
+        Width = 130
+        Height = 16
+        Hint = 'Mean anomaly'
+        Margins.Left = 8
+        Margins.Top = 0
+        Margins.Right = 0
+        Margins.Bottom = 0
+        Align = alBottom
+        Alignment = taLeftJustify
+        BevelOuter = bvNone
+        Caption = 'N/A'
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 16
+        ExplicitTop = 239
+        ExplicitWidth = 124
+      end
+      object Value_Ecc: TPanel
+        AlignWithMargins = True
+        Left = 8
+        Top = 272
+        Width = 130
+        Height = 16
+        Hint = 'Eccentric/parabolic/gyperbolic anomaly'
+        Margins.Left = 8
+        Margins.Top = 0
+        Margins.Right = 0
+        Margins.Bottom = 0
+        Align = alBottom
+        Alignment = taLeftJustify
+        BevelOuter = bvNone
+        Caption = 'N/A'
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 17
+        ExplicitTop = 255
+        ExplicitWidth = 124
+      end
+      object Value_Univ: TPanel
+        AlignWithMargins = True
+        Left = 8
+        Top = 288
+        Width = 130
+        Height = 16
+        Hint = 'Universal anomaly'
+        Margins.Left = 8
+        Margins.Top = 0
+        Margins.Right = 0
+        Margins.Bottom = 0
+        Align = alBottom
+        Alignment = taLeftJustify
+        BevelOuter = bvNone
+        Caption = 'N/A'
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 18
+        ExplicitTop = 271
+        ExplicitWidth = 124
+      end
+      object Value_v: TPanel
+        AlignWithMargins = True
+        Left = 8
+        Top = 224
+        Width = 130
+        Height = 16
+        Hint = 'Magnitude of velocity vector'
+        Margins.Left = 8
+        Margins.Top = 0
+        Margins.Right = 0
+        Margins.Bottom = 0
+        Align = alBottom
+        Alignment = taLeftJustify
+        BevelOuter = bvNone
+        Caption = 'N/A'
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 14
+        ExplicitTop = 207
+        ExplicitWidth = 124
+      end
+    end
+  end
+end
