@@ -37,6 +37,7 @@ object OscForm: TOscForm
     TabOrder = 0
     TextHint = '<select target>'
     OnDrawItem = ComboDrawItem
+    ExplicitWidth = 288
   end
   object CenterBox: TComboBox
     Left = 0
@@ -60,6 +61,7 @@ object OscForm: TOscForm
     OnDrawItem = ComboDrawItem
     Items.Strings = (
       'Solar System BC')
+    ExplicitWidth = 288
   end
   object FrameBox: TComboBox
     Left = 0
@@ -84,6 +86,7 @@ object OscForm: TOscForm
     Items.Strings = (
       'ICRF (J2000 Equatorial)'
       'J2000 Ecliptical')
+    ExplicitWidth = 288
   end
   object Panel_All: TPanel
     Left = 0
@@ -1103,7 +1106,7 @@ object OscForm: TOscForm
         Top = 272
         Width = 130
         Height = 16
-        Hint = 'Eccentric/parabolic/gyperbolic anomaly'
+        Hint = 'Eccentric/parabolic/hyperbolic anomaly'
         Margins.Left = 8
         Margins.Top = 0
         Margins.Right = 0

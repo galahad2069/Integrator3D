@@ -100,7 +100,6 @@ type
     FElements: array[0..1] of TElements;
     procedure TimerTick(Sender: TObject);
   public
-    procedure SetCenter(const Value: string);
     procedure Refresh;
   end;
 
@@ -250,14 +249,6 @@ begin
     FillRect(Rect);
     TextOut(Rect.Left + 2, Rect.Top + 2, Text);
    end;
-end;
-
-procedure TOscForm.SetCenter(const Value: string);
-var
-  i: Int64;
-begin
-  i:=CenterBox.Items.IndexOf(Value);
-  if i>=0 then CenterBox.ItemIndex:=i;
 end;
 
 procedure TOscForm.Refresh;

@@ -75,7 +75,6 @@ type
     IntegrationMode, IntegrationModeSelected: Int64;
     IntegrationS: TState4DArray;
     IntegrationA: TVec4DArray;
-    IntegrationC: array of Int64;
     IntegrationX: array of TAccForm;
     IntegrationCallbacks: TAccelCallbacks;
     IntegrationNames: array of string;
@@ -327,7 +326,6 @@ begin
      IntegrationX[i]:=nil;
      if F<>nil then F.Free;
     end;
-   SetLength(IntegrationC, 0);
    SetLength(IntegrationA, 0);
    SetLength(IntegrationS, 0);
    SetLength(IntegrationX, 0);
@@ -536,7 +534,6 @@ begin
    begin
     IntegrationS[i]       := IntegrationS[i+1];
     IntegrationA[i]       := IntegrationA[i+1];
-    IntegrationC[i]       := IntegrationC[i+1];
     IntegrationX[i]       := IntegrationX[i+1];
     IntegrationCallbacks[i]:=IntegrationCallbacks[i+1];
     IntegrationNames[i]   := IntegrationNames[i+1];
@@ -544,7 +541,6 @@ begin
    end;
   SetLength(IntegrationS,       n-1);
   SetLength(IntegrationA,       n-1);
-  SetLength(IntegrationC,       n-1);
   SetLength(IntegrationX,       n-1);
   SetLength(IntegrationCallbacks, n-1);
   SetLength(IntegrationNames,   n-1);
@@ -841,7 +837,6 @@ begin
   try
    SetLength(IntegrationS,       n);
    SetLength(IntegrationA,       n);
-   SetLength(IntegrationC,       n);
    SetLength(IntegrationNames,   n);
    SetLength(IntegrationCallbacks, n);
    SetLength(IntegrationX,       n);
@@ -849,7 +844,6 @@ begin
    for i := 0 to n-1 do
     begin
      IntegrationS[i]         := FIntegrationStates[FActiveIndices[i]];
-     IntegrationC[i]         := FIntegrationCenters[FActiveIndices[i]];
      IntegrationNames[i]     := FIntegrationNames[FActiveIndices[i]];
      IntegrationNonGrav[i]   := FIntegrationNonGrav[FActiveIndices[i]];
      IntegrationCallbacks[i] := nil;   // accelerations are stopped across a restart (re-enable via the toggle)

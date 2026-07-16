@@ -200,6 +200,8 @@ type
     FTrails: array of TTrailRec;
     FFrozen: array of TFrozenRec;   // collided integrands kept for display only (see FreezeIntegrand/DrawFrozen)
     FClearFrozen: Boolean;          // UI-thread request (barycenter/reset) to drop FFrozen; honoured on the render thread
+    FCamOrphaned: Boolean;          // the camera centre was locked on an integrand that has since collided -> the fade-out rebuild drops it back to the barycentre. Cleared when the user picks a centre (PMCamCenterClick) or by any rebuild
+    FCamMenuStale: Boolean;         // a collision removed an integrand but PMCamCenter still lists it. Cleared by ANY RebuildCamCenterMenu, so the fade-out rebuild is skipped when one already happened (barycenter switch, IntForm change)
     FRotAxis: array of TRotAxis;    // co-rotating-frame axis table, indexed by the PMRot item's Tag
     FRotCenter, FRotTarget: Int64;  // active co-rotating axis (NAIF ids); FRotTarget < 0 = Off
     FCoRotMatrix: TMat4D;           // display-only co-rotation for the current frame (identity when Off); see UpdateCoRotMatrix
@@ -264,6 +266,7 @@ type
     function  AxisEndpointSSB(id: Int64; out S: TState4D): Boolean;  // SSB state of a co-rotating-axis endpoint from the current frame's arrays
     procedure UpdateCoRotMatrix;                        // rebuild FCoRotMatrix from the current axis + states (once per frame, before the trail store)
     function  DispPos(const p: TVec4D): TVec4D;         // FBarycenter-relative absolute position -> co-rotated, FRotCenter-re-centred display coords (NOT for velocities/relative vectors)
+    function  IntegrandInSystem(idx: Int64): Boolean;   // whether integrand idx currently belongs to FBarycenter's system (Hill-radius test; always True in the full SSB view)
     function  IntegrandShown(idx: Int64): Boolean;      // whether integrand idx is drawn now (hides out-of-view ones while co-rotating)
     procedure CloseAllDynForms;
   public
@@ -654,6 +657,7 @@ begin
   p := mi.Parent;
   while (p <> nil) and (p <> PMCamCenter) do begin p.Checked := True; p := p.Parent; end;
   PMCamCenter.Tag := mi.Tag;
+  FCamOrphaned := False;   // the user has chosen a centre: cancel any pending fall-back to the barycentre (see FreezeIntegrand/DrawFrozen)
 end;
 
 procedure TMainForm.PMBarycenterClick(Sender: TObject);
@@ -1855,11 +1859,11 @@ begin
        end;
       DrawDot := True;
       S.R := DispPos(IntForm.IntegrationS[idx].R - FBaryR);   // integrand dot, re-centred on the co-rotating frame's centre
-      // Draw the osculating orbit when the integrand is shown about a meaningful centre: the full SSB
-      // view (heliocentric) or the view it was authored in (FBarycenter = IntegrationC[idx]). Re-centre
-      // the velocity by FBaryV and use that centre's GM so the conic is correct (both zero/SSB when
-      // FBarycenter=0, matching the previous behaviour).
-      if (FBarycenter = 0) or ((idx < Length(IntForm.IntegrationC)) and (IntForm.IntegrationC[idx] = FBarycenter)) then
+      // Draw the osculating orbit only about a centre it is meaningful around: the full SSB view (heliocentric),
+      // or a planetary system the integrand is actually inside right now (IntegrandInSystem's Hill test) -- a
+      // distant, unrelated integrand would otherwise draw a nonsensical conic. Re-centre the velocity by FBaryV
+      // and use that centre's GM so the conic is correct (both zero/SSB when FBarycenter=0).
+      if IntegrandInSystem(idx) then
        begin
         SO.R := (IntForm.IntegrationS[idx].R - FOrbitR)*FEpsMatrix*FCoRotMatrix;   // conic: integrand relative to FOrbitCenter
         SO.V := (IntForm.IntegrationS[idx].V - FOrbitV)*FEpsMatrix*FCoRotMatrix;
@@ -2270,14 +2274,38 @@ begin
    end;
 end;
 
+function TMainForm.IntegrandInSystem(idx: Int64): Boolean;
+// Whether integrand idx belongs, RIGHT NOW, to the system we are looking at. This is the test behind both the
+// osculating orbit (DrawOrbits) and the co-rotating visibility (IntegrandShown). It replaces the old IntegrationC
+// scheme, which pinned an integrand to whatever FBarycenter happened to be current when its ICs were entered --
+// stable, but counter-intuitive once the thing had actually flown somewhere else.
+//   FBarycenter = 0 (full SSB view): everything belongs. The strict test ("not on a closed orbit about some
+//     planetary barycentre") is far too expensive to run per frame, and a heliocentric conic is meaningful anyway.
+//   FBarycenter > 0: it belongs while inside that barycentre's belonging radius -- ApproxSystemRadius, which the
+//     file computed once at Open and already scaled by BSPXFile's HILL_FACTOR (tune it there).
+// A radius of 0 (unknown -- body absent from the file, no GM, ...) means "do not restrict".
+// Called only from the draw path, so it costs one distance per integrand per frame and needs no per-step upkeep.
+var
+  rH: Double;
+  D: TVec4D;
+begin
+  if FBarycenter = 0 then Exit(True);
+  rH := FBSPXFile.ApproxSystemRadius(FBarycenter);
+  if rH <= 0.0 then Exit(True);
+  if (idx < 0) or (idx >= Length(IntForm.IntegrationS)) then Exit(False);
+  if (FBaryDescIdx < 0) or (FBaryDescIdx >= Length(States[0])) then Exit(True);   // cannot locate the centre -> do not restrict
+  // Both are SSB-relative (the integrand by storage, the barycentre because its descriptor is SSB-centred), so
+  // the difference is the integrand relative to the local barycentre.
+  D := IntForm.IntegrationS[idx].R - States[0][FBaryDescIdx].R;
+  Result := LengthVec3D(@D) <= rH;
+end;
+
 function TMainForm.IntegrandShown(idx: Int64): Boolean;
 // Whether integrand idx should be drawn in the current view. Normally all integrands are shown; in a
-// co-rotating frame only those belonging to the current system are (out-of-view ones would just whirl).
-// "Belonging" = the full SSB view, or authored about FBarycenter (IntegrationC[idx]) -- the same test the
-// osculating-orbit and camera-target code use.
+// co-rotating frame only those belonging to the current system are -- one that has left may whirl all it likes
+// while it still belongs, but a distant, unrelated one would just smear across the view.
 begin
-  Result := (FRotTarget < 0) or (FBarycenter = 0) or
-            ((idx < Length(IntForm.IntegrationC)) and (IntForm.IntegrationC[idx] = FBarycenter));
+  Result := (FRotTarget < 0) or IntegrandInSystem(idx);
 end;
 
 procedure TMainForm.UpdateCoRotMatrix;
@@ -2634,7 +2662,9 @@ end;
 procedure TMainForm.PMOrbitCenterClick(Sender: TObject);
 // Pick the osculating-orbit focus. The menu can be nested (name-range submenus), so uncheck the whole tree, check
 // the clicked leaf, and flag its ancestor chain so a collapsed path still shows the active leaf. FOrbitCenter is
-// read by DrawOrbits. Idle AccForms follow the new centre (SetCenter, by name as it appears in their centre combo).
+// read by DrawOrbits. Idle AccForms follow the new centre (SetCenter, by name as it appears in their centre combo);
+// OscForms deliberately do NOT -- each one keeps whatever centre the user gave it, so several can show osculating
+// elements about different centres at the same time.
 var
   idx: Int64;
   nm: string;
@@ -2654,7 +2684,6 @@ begin
     if idx >= 0 then nm := BSPXStr(FBSPXFile.Desc[idx].TargetName, SizeOf(FBSPXFile.Desc[idx].TargetName)) else nm := '';
    end;
   if Assigned(IntForm) then IntForm.SetIdleAccFormsCenter(nm);   // idle AccForms follow the new centre
-  for idx := 0 to High(FOscForms) do FOscForms[idx].SetCenter(nm);   // OscForms follow it too (UI-thread list, no lock)
 end;
 
 procedure TMainForm.RebuildAccMenu;
@@ -2717,6 +2746,7 @@ begin
   p := keep.Parent;
   while (p <> nil) and (p <> PMCamCenter) do begin p.Checked := True; p := p.Parent; end;
   PMCamCenter.Tag := keep.Tag;
+  FCamOrphaned := False;   // the centre has been moved (co-rotation follow), so don't yank it to the barycentre later; the menu itself is untouched, so FCamMenuStale stands
 end;
 
 procedure TMainForm.RebuildCamCenterMenu(PreserveTarget: Boolean);
@@ -2742,8 +2772,7 @@ begin
   // (IntBoxClick/Reset), so reading them here needs no lock.
   IntMenu := nil;
   for i := 0 to Length(IntForm.IntegrationNames)-1 do
-   if (i < Length(IntForm.IntegrationC)) and ((FBarycenter = 0) or (IntForm.IntegrationC[i] = FBarycenter)) then
-    begin
+   begin
      if IntMenu = nil then
       begin IntMenu := TMenuItem.Create(PMCamCenter); IntMenu.Caption := 'Integrands'; PMCamCenter.Add(IntMenu); end;
      it := TMenuItem.Create(IntMenu); it.Tag := -(i+1); it.Caption := IntForm.IntegrationNames[i];
@@ -2760,6 +2789,11 @@ begin
   p := keep.Parent;
   while (p <> nil) and (p <> PMCamCenter) do begin p.Checked := True; p := p.Parent; end;
   PMCamCenter.Tag := keep.Tag;
+  // The menu now reflects the live set and the centre is a live leaf (or the root), so a collision left pending by
+  // FreezeIntegrand is fully resolved here -- whatever triggered this rebuild (barycenter switch, IntForm change,
+  // or the fade-out itself). DrawFrozen then finds nothing to do and skips its rebuild.
+  FCamMenuStale := False;
+  FCamOrphaned  := False;
 end;
 
 procedure TMainForm.RenderScene;
@@ -2846,8 +2880,7 @@ begin
     if PMCamCenter.Tag < 0 then
      begin
       i := -PMCamCenter.Tag - 1;   // active integration body index
-      if (i < Length(IntForm.IntegrationS)) and (i < Length(IntForm.IntegrationC)) and
-         ((FBarycenter = 0) or (IntForm.IntegrationC[i] = FBarycenter)) then
+      if i < Length(IntForm.IntegrationS) then   // every running integrand is targetable, wherever it is (the menu lists them all)
        begin
         // integrand stored SSB-relative; re-centre to FBarycenter, then DispPos re-centres to the co-rotating centre, matching the drawn dot
         if (FBaryDescIdx >= 0) and (Length(States[0]) > FBaryDescIdx) then
@@ -2984,6 +3017,13 @@ var
 begin
   n := Length(IntForm.IntegrationS);
   if (idx < 0) or (idx >= n) then Exit;
+  // PMCamCenter still lists this integrand (nothing rebuilds it here) -> mark it stale so DrawFrozen has the menu
+  // rebuilt once the trail has faded. If the camera is locked on THIS integrand, note that too, so that rebuild
+  // also drops the centre back to the barycentre. Both must be read BEFORE RemoveActiveIntegration shifts the
+  // indices (which makes the -(idx+1) tag meaningless). Either flag is cleared if the situation resolves itself
+  // first: the user picking a centre (PMCamCenterClick), or any menu rebuild (e.g. a barycenter switch).
+  FCamMenuStale := True;
+  if PMCamCenter.Tag = -(idx+1) then FCamOrphaned := True;
   ti := FBSPXFile.DescCount + idx;
   SetLength(FFrozen, Length(FFrozen)+1);
   with FFrozen[High(FFrozen)] do
@@ -3018,11 +3058,15 @@ end;
 procedure TMainForm.DrawFrozen;
 // Draw each frozen integrand's captured trail + a dot at its last point, then age it; drop expired ones.
 // Runs in the same GL frame as the live trails, so the captured display-frame points render identically.
+// When a trail has fully faded its menu entry is stale -- the collision dropped the integrand from the active
+// set (RemoveActiveIntegration) but nothing rebuilt PMCamCenter -- so have the UI thread rebuild it then.
 var
   i, k, w: Int64;
   a: Single;
   c: TColorRec;
+  expired: Boolean;
 begin
+  expired := False;
   i := 0;
   while i <= High(FFrozen) do
    begin
@@ -3052,9 +3096,23 @@ begin
      begin
       FFrozen[i] := FFrozen[High(FFrozen)];   // swap-remove
       SetLength(FFrozen, Length(FFrozen)-1);
+      expired := True;
      end
     else Inc(i);
    end;
+  // A collided integrand has finished fading: rebuild PMCamCenter so its dead entry goes away -- but only if no
+  // rebuild has happened since the collision (a barycenter switch or an IntForm change already does the job and
+  // clears FCamMenuStale, so there is nothing left to do). Queue, NOT Synchronize -- the render thread holds
+  // FPublicLock here and the UI thread may be blocked on it (same reasoning as RemoveActiveIntegration's deferred
+  // TAccForm.Free). Both flags are re-read on the UI thread at execution time, so anything that resolves the
+  // situation between the queue and the call still wins: PreserveTarget=True keeps a centre the user picked,
+  // False drops the selection back to the root = FBarycenter.
+  if expired and FCamMenuStale then
+   TThread.Queue(nil,
+     procedure
+     begin
+       if FCamMenuStale then RebuildCamCenterMenu(not FCamOrphaned);   // clears both flags
+     end);
 end;
 
 procedure TMainForm.AdvanceScene;

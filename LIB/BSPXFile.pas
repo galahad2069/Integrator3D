@@ -10,6 +10,7 @@ uses
 const
   BSPX_ID = 'BSPX';
   BSPX_VER = $00000001;
+  HILL_FACTOR = 1.5;   // how far out a body still counts as belonging to a planetary system, as a multiple of that system's true Hill radius. Baked into ApproxSystemRadius once (at Open), so callers just compare a distance against it -- tune to taste
 
 type
  TBSPXVer = packed record
@@ -89,6 +90,7 @@ type
     FPerturberIdx: array of Int64;   // dense descriptor indices of the real perturbers (GM>0); built in Init
     FPerturberSoA: TPerturberSoA;    // packed perturber SoA (per node) handed to the PN force kernels; raw columns filled by PackPerturbers
     FMaxThreadCount: Integer;
+    FApproxSystemRadii: array[0..10] of Double;   // per planetary barycentre: the radius within which a body still counts as belonging to its system (= HILL_FACTOR * the approximate Hill radius). Indexed by body id exactly like FHdr.GM (0=SSB, 1..9=planet BC, 10=Sun). 0 = unknown/not applicable. Filled once by ComputeApproxSystemRadii at the end of a successful Open
     function GetDesc(Index: Int64): PBSPXDesc;
     function GetDescCount: Int64;
     function GetBodyConst(Index: Int64): PBSPXBodyConst;
@@ -98,6 +100,7 @@ type
     procedure InterpolateCore1(DescIndex: Int64; T: Double; R: PVec4D);
     procedure InterpolateCore2(DescIndex: Int64; T: Double; S: PState4D);
     procedure SetPerturberStateCenterID(Value: Int64);
+    procedure ComputeApproxSystemRadii;   // fill FApproxSystemRadii from the header GMs + the SSB->BC distances at the file's mid-epoch; called once, at the end of a successful Open
   public
     constructor Create;
     destructor Destroy; override;
@@ -110,6 +113,7 @@ type
     function FindDesc(TargetID: Int64): Int64; overload;
     function GetPerturberName(Code: Int64): AnsiString;
     function GetPerturberGM(Code: Int64): Double;
+    function ApproxSystemRadius(BodyID: Int64): Double;   // radius (km) within which a body still belongs to this planetary system = HILL_FACTOR * its approximate Hill radius, applied once at Open; 0 = unknown/not applicable (callers should then not restrict)
     function Interpolate1(DescIndex: Int64; T: Double; R: PVec4D): Boolean;
     function Interpolate2(DescIndex: Int64; T: Double; S: PState4D): Boolean;
     function RelativeInterpolate2(TargetID, CenterID, RefID: Int64; T: Double; S: PState4D): Boolean;
@@ -449,6 +453,7 @@ begin
    FStream.Position:=FHdr.Data.Size;
    {$ENDIF}
 
+   ComputeApproxSystemRadii;   // one-shot; needs the descriptors AND the coefficient data loaded above, so it goes last
    Result:=True;
   except on E: Exception do begin
    FError:=E.Message;
@@ -460,6 +465,50 @@ begin
   SetLength(Vec4DArray, 0);
   {$ENDIF}
   if FileStream<>nil then FileStream.Free;
+end;
+
+procedure TBSPXFile.ComputeApproxSystemRadii;
+// The "still belongs to this system" radius of every planetary barycentre, computed ONCE at Open. The
+// figures only decide whether an integrand still "belongs" to a planetary system, so a single mid-epoch snapshot
+// is plenty -- the true value varies slowly with the BC's distance and never needs per-step maintenance.
+// Everything is derived from the FILE (header GMs + the real SSB->BC distance), so nothing is hard-coded to our
+// solar system: a bspx built for another star system yields its own radii with no code change.
+//   r_H ~= d * (GM_body / (3*GM_primary))^(1/3),   d = |SSB->BC| at the middle of the file's time span.
+// HILL_FACTOR is applied HERE, once, so what gets stored (and returned by ApproxSystemRadius) is the belonging
+// radius itself -- callers just compare a distance against it, with no per-frame arithmetic.
+// A body with no GM, no SSB-centred descriptor, or an out-of-span mid-epoch keeps 0 = unknown; callers must then
+// not restrict (see ApproxSystemRadius).
+var
+  i, d: Int64;
+  T, GMp: Double;
+  R: TVec4D;
+begin
+  for i := Low(FApproxSystemRadii) to High(FApproxSystemRadii) do FApproxSystemRadii[i] := 0.0;
+  GMp := FHdr.GM[10];                        // the primary (the Sun in a solar-system file)
+  if GMp <= 0.0 then Exit;
+  T := 0.5*(FHdr.Epoch0 + FHdr.Epoch1);      // mid-epoch: one representative distance for the whole span
+  for i := 1 to 9 do                         // planetary barycentres
+   begin
+    if FHdr.GM[i] <= 0.0 then Continue;
+    d := FindDesc(i, 0);                     // SSB-centred, so Interpolate1 gives the SSB-relative position directly
+    if (d < 0) or (FDesc[d].NumComp <> 3) then Continue;
+    if (T < FDesc[d].Epoch0) or (T > FDesc[d].Epoch1) then Continue;
+    try
+     if not Interpolate1(d, T, @R) then Continue;
+    except
+     Continue;   // a body we cannot evaluate simply stays "unknown"; never fail Open over an approximation
+    end;
+    FApproxSystemRadii[i] := HILL_FACTOR * LengthVec3D(@R) * Power(FHdr.GM[i]/(3.0*GMp), 1.0/3.0);
+   end;
+end;
+
+function TBSPXFile.ApproxSystemRadius(BodyID: Int64): Double;
+// The "still belongs to this system" radius (km) of a planetary barycentre: HILL_FACTOR * its approximate Hill
+// radius, already applied when the array was computed at Open -- compare a distance straight against this.
+// 0 = unknown/not applicable (SSB, the Sun, a body absent from the file, ...); callers treat 0 as "no restriction".
+begin
+  if (BodyID >= Low(FApproxSystemRadii)) and (BodyID <= High(FApproxSystemRadii)) then Result := FApproxSystemRadii[BodyID]
+  else Result := 0.0;
 end;
 
 procedure TBSPXFile.Close;
