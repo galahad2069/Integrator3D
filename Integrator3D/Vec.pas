@@ -208,7 +208,7 @@ var
 
 implementation
 
-uses Main, Vcl.Themes, Int, System.Net.HttpClient, System.NetEncoding;
+uses Main, Vcl.Themes, Int, System.Net.HttpClient, System.Net.URLClient, System.NetEncoding, RSoftUtils64;
 
 {$R *.dfm}
 
@@ -348,7 +348,7 @@ begin
   ResetValues;
   Value_SCenter.Tag:=0;   // integrands are always stored SSB-relative (the inertial frame); FBarycenter
                           // is a render-time view only. CompBtnClick_Geometric translates output to 0.
-  Value_SFrame.Tag:=0;
+  Value_SFrame.Tag:=SPICE_J2000;   // output is always ICRF; Tag is a SPICE frame code, like everywhere else
   DisplayState;
   Show;
 end;
@@ -399,7 +399,8 @@ begin
   CenterBox.ItemIndex:=-1;
   FrameBox.ItemIndex:=-1;
   for i:=0 to Panel_IValues.ControlCount-1 do if Panel_IValues.Controls[i] is TEdit then TEdit(Panel_IValues.Controls[i]).Text:='';
-  for i:=0 to Panel_OValues.ControlCount-1 do if (Panel_OValues.Controls[i] is TPanel) and (TPanel(Panel_OValues.Controls[i]).Caption<>'') then TPanel(Panel_OValues.Controls[i]).Caption:='N/A';
+  // only the Value_S* output fields -- the column headers (Panel25 'Value:') and separators are panels too
+  for i:=0 to Panel_OValues.ControlCount-1 do if (Panel_OValues.Controls[i] is TPanel) and (Copy(Panel_OValues.Controls[i].Name, 1, 6)='Value_') then TPanel(Panel_OValues.Controls[i]).Caption:='N/A';
   FillChar(FElements, SizeOF(TElements), 0);
   FillChar(FState, SizeOf(TState4D), 0);
   for i:=0 to 2 do begin FState.R.cf[i]:=PINF; FState.V.cf[i]:=PINF; end; FState.Epoch:=PINF;
@@ -490,8 +491,8 @@ end;
 procedure TVecForm.DisplayFrame;
 begin
   case Value_SFrame.Tag of
-   0: Value_SFrame.Caption:='0 (ICRF)';
-   1: Value_SFrame.Caption:='1 (J2000 Ecliptical)';
+   SPICE_J2000:      Value_SFrame.Caption:=Format('%d (ICRF)', [SPICE_J2000]);
+   SPICE_ECLIPJ2000: Value_SFrame.Caption:=Format('%d (J2000 Ecliptical)', [SPICE_ECLIPJ2000]);
    else Value_SFrame.Caption:=Format('%d (<unknown>)', [Value_SFrame.Tag]);
   end;
 end;
@@ -672,7 +673,8 @@ begin
     begin
      // get position and velocity of TargetID=SCenter.Tag at St.Epoch
      // translate St vectors to center
-     if not MainForm.BSPXFile.RelativeInterpolate2(centerID, Value_SCenter.Tag, FrameBox.ItemIndex, St.Epoch, @Sc) then raise Exception.Create(MainForm.BSPXFile.Error);
+     // SPICE_J2000 (not FrameBox's index): St has been rotated to ICRF above, and the output is ICRF too
+     if not MainForm.BSPXFile.RelativeInterpolate2(centerID, Value_SCenter.Tag, SPICE_J2000, St.Epoch, @Sc) then raise Exception.Create(MainForm.BSPXFile.Error);
      St.R:=St.R+Sc.R;
      St.V:=St.V+Sc.V;
     end;
@@ -734,7 +736,8 @@ procedure TVecForm.TargetEditRightButtonClick(Sender: TObject);
 var
   ET, JD: Double;
   fs: TFormatSettings;
-  target, url, resp, savedEpoch: string;
+  target, url, resp, savedEpoch, pxHost: string;
+  pxPort: Integer;
   HC: THTTPClient;
   F: TStringList;
 begin
@@ -766,6 +769,11 @@ begin
   try
     HC.ConnectionTimeout := 10000;             // fail fast on a dead link (10 s to connect, 15 s for the response)
     HC.ResponseTimeout   := 15000;             //   rather than freezing the VCL thread on the OS default
+    // Pin the user's Windows proxy: left to itself the RTL can fail its own proxy discovery and then go direct,
+    // which behind a firewall hangs to the timeout above instead of failing (see GetSystemProxy). No credentials
+    // here on purpose -- WinHTTP answers an NTLM/Negotiate challenge with the Windows logon by itself, and a
+    // Basic/Digest proxy would need a prompt this synchronous fetch has no room for (it would just time out).
+    if GetSystemProxy(pxHost, pxPort) then HC.ProxySettings := TProxySettings.Create(pxHost, pxPort);
     try
      resp := HC.Get(url).ContentAsString;
     except on E: Exception do

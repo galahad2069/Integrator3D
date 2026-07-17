@@ -52,6 +52,7 @@ type
     FFiles, FTargets: TStringList;
     FList, FTmin, FTmax: TCustomList;
     FDlThread: TThread;
+    FExeStr: string;
     procedure CheckCoverage;
     procedure LoadBSPFiles(const Paths: array of string);
     procedure AbortDownloadClick(Sender: TObject);
@@ -639,6 +640,8 @@ begin
   FList:=nil;
   FTmin:=nil;
   FTmax:=nil;
+  FExeStr:='BSPMerge v'+GetShortVersion(Application.ExeName);
+  MainForm.Caption:=FExeStr;
   HorizonsMode:=(LoadStrFromIni(ChangeFileExt(Application.ExeName, '.ini'), TAG_HORIZONSMODE)='1');
 end;
 
@@ -671,9 +674,18 @@ type
     FHTTP: THTTPClient;
     FIdx, FTotal, FPct, FDone: Integer;
     FName, FErr, FResult: string;
+    // Proxy credentials: memory-only, for this run. Never written to disk or logged -- they are the user's
+    // network account, and BSPMerge has no business keeping them past the download.
+    FProxyUser, FProxyPass, FProxyRealm: string;
+    FProxyCancelled: Boolean;
+    FLog: string;
     procedure SyncFile;
     procedure SyncProg;
     procedure SyncDone;
+    procedure SyncLog;
+    procedure SyncProxyPrompt;
+    procedure ProxyAuth(const Sender: TObject; AnAuthTarget: TAuthTargetType; const ARealm, AURL: string;
+                        var AUserName, APassword: string; var AbortAuth: Boolean; var Persistence: TAuthPersistenceType);
     procedure Recv(const Sender: TObject; AContentLength, AReadCount: Int64; var AAbort: Boolean);
     function  GetToFile(const AURL, AFileName: string): Boolean;   // download a static kernel straight to a file
     function  GetMP(AID: Int64): Boolean;                          // generate + fetch a KBO SPK via the Horizons API
@@ -689,6 +701,74 @@ begin
   while (i>0) and (Result[i]<>'/') do Dec(i);
   Result := Copy(Result, i+1, MaxInt);
   i := Pos('?', Result); if i>0 then Result := Copy(Result, 1, i-1);
+end;
+
+function PromptProxyCredentials(const ARealm: string; var AUser, APass: string): Boolean;
+// Built at runtime rather than as a .dfm: it is one dialog, shown only on a 407, and keeping it here keeps the
+// credentials in one place. UI thread only -- the download thread reaches it through Synchronize.
+var
+  F: TForm; LInfo, LU, LP: TLabel; EU, EP: TEdit; BOK, BCancel: TButton; s: string;
+begin
+  F := TForm.CreateNew(nil);
+  try
+   F.Caption := 'Proxy authentication required';
+   F.BorderStyle := bsDialog;
+   F.Position := poMainFormCenter;
+   F.ClientWidth := 344; F.ClientHeight := 150;
+
+   s := 'The proxy server requires a user name and password.';
+   if ARealm <> '' then s := s + sLineBreak + 'Realm: ' + ARealm;
+   LInfo := TLabel.Create(F); LInfo.Parent := F;
+   LInfo.SetBounds(12, 10, 320, 30); LInfo.WordWrap := True; LInfo.Caption := s;
+
+   LU := TLabel.Create(F); LU.Parent := F; LU.SetBounds(12, 55, 70, 15); LU.Caption := 'User name:';
+   EU := TEdit.Create(F);  EU.Parent := F;  EU.SetBounds(90, 52, 242, 23); EU.Text := AUser;
+
+   LP := TLabel.Create(F); LP.Parent := F; LP.SetBounds(12, 86, 70, 15); LP.Caption := 'Password:';
+   EP := TEdit.Create(F);  EP.Parent := F;  EP.SetBounds(90, 83, 242, 23); EP.Text := APass;
+   EP.PasswordChar := '*';
+
+   BOK := TButton.Create(F); BOK.Parent := F; BOK.SetBounds(172, 116, 78, 25);
+   BOK.Caption := 'OK'; BOK.Default := True; BOK.ModalResult := mrOk;
+   BCancel := TButton.Create(F); BCancel.Parent := F; BCancel.SetBounds(256, 116, 78, 25);
+   BCancel.Caption := 'Cancel'; BCancel.Cancel := True; BCancel.ModalResult := mrCancel;
+
+   if EU.Text = '' then F.ActiveControl := EU else F.ActiveControl := EP;
+   Result := F.ShowModal = mrOk;
+   if Result then begin AUser := EU.Text; APass := EP.Text; end;
+  finally
+   F.Free;
+  end;
+end;
+
+procedure TDownloadThread.SyncLog;
+begin
+  MainForm.Memo.Lines.Append(FLog);
+end;
+
+procedure TDownloadThread.SyncProxyPrompt;
+begin
+  if not PromptProxyCredentials(FProxyRealm, FProxyUser, FProxyPass) then
+   begin
+    FProxyCancelled := True;
+    FProxyUser := ''; FProxyPass := '';
+   end;
+end;
+
+procedure TDownloadThread.ProxyAuth(const Sender: TObject; AnAuthTarget: TAuthTargetType; const ARealm, AURL: string;
+                                    var AUserName, APassword: string; var AbortAuth: Boolean; var Persistence: TAuthPersistenceType);
+// Fires only when the proxy actually answers 407, so users without an authenticating proxy never see a thing.
+// The RTL owns the whole challenge/retry dance (and picks the scheme the proxy offers -- Negotiate, NTLM,
+// Digest or Basic); all it lacks is someone to ask for the credentials, which is what this callback is.
+begin
+  if AnAuthTarget <> TAuthTargetType.Proxy then Exit;         // 401s from the server are not ours to answer
+  if FProxyCancelled then begin AbortAuth := True; Exit; end; // asked once, declined: fail the rest of the run quietly rather than nag per file
+  FProxyRealm := ARealm;
+  Synchronize(SyncProxyPrompt);                               // VCL is UI-thread-only; blocks until the user answers
+  if FProxyCancelled then begin AbortAuth := True; Exit; end;
+  AUserName := FProxyUser;
+  APassword := FProxyPass;
+  Persistence := TAuthPersistenceType.Client;                 // remember for this THTTPClient: one prompt per run, not one per file
 end;
 
 procedure TDownloadThread.SyncFile;
@@ -788,7 +868,7 @@ begin
 end;
 
 procedure TDownloadThread.Execute;
-var i, idx: Integer; fn: string;
+var i, idx, pxPort: Integer; fn, pxHost: string;
 begin
   FDone := 0; FErr := ''; idx := 0;
   FTotal := Length(Default_Files) - Ord(MainForm.HorizonsMode) + MainForm.NumAst.Value*Ord(MainForm.HorizonsMode) + MainForm.NumKBO.Value;
@@ -797,6 +877,18 @@ begin
     FHTTP := THTTPClient.Create;                           // WinHTTP-backed: native HTTPS, no OpenSSL DLLs needed
     try
       FHTTP.OnReceiveData := Recv;
+      FHTTP.AuthEvent := ProxyAuth;                        // without this the RTL has no way to ask, so a 407 just fails the download
+      // Pin the proxy explicitly (see GetSystemProxy): left to itself the RTL can end up going direct, which
+      // behind a firewall hangs to the timeout instead of failing. Credentials are NOT set here on purpose --
+      // supplying a user name up front forces Basic, whereas letting the 407 arrive lets WinHTTP negotiate
+      // whatever the proxy actually offers (Negotiate/NTLM/Digest/Basic) and routes us through ProxyAuth.
+      if GetSystemProxy(pxHost, pxPort) then
+       begin
+        FHTTP.ProxySettings := TProxySettings.Create(pxHost, pxPort);
+        FLog := Format('Proxy: using the Windows setting %s:%d', [pxHost, pxPort]);
+       end
+      else FLog := 'Proxy: none configured in Windows - connecting directly';
+      Synchronize(SyncLog);                                // log before the first request: if it hangs, this says what it was aiming at
       FHTTP.ConnectionTimeout := 30000;
       FHTTP.ResponseTimeout := 60000;                      // guards a stalled connection; resets as data flows
       // phase 1: static kernels (planets, satellites, main-belt asteroids)
@@ -1154,7 +1246,7 @@ begin
    if IsInfinite(minT) then minS:=FloatToStr(minT) else minS:=BSPXTimeStr(minT, 3);
    if IsInfinite(maxT) then maxS:=FloatToStr(maxT) else maxS:=BSPXTimeStr(maxT, 3);
 
-   MainForm.Caption:=Format('BSPMerge [%s - %s]', [minS, maxS]);
+   MainForm.Caption:=Format('%s [%s - %s]', [FExeStr, minS, maxS]);
   finally
    Tmax.Free;
    Tmin.Free;
@@ -1186,8 +1278,9 @@ var
   pckPath, pckTxt: string;                                                           // Stage D: SPICE PCK (radii + pole + rotation)
   pReq, pRA, pRArate, pDec, pDecRate, pW, pWrate: Double;
   // heliocentric -> SSB re-centring of Sun-descendant (CenterID=10) bodies:
-  SunNumCoef, SunN, SunRecBytes: Int64;
+  SunNumCoef, SunN, SunRecBytes, SunRefID: Int64;   // SunRefID: the Sun source's SPICE frame -- must match each body we add it to
   SunInit, SunInvIntlen: Double; SunBase: PByte; SunAvail: Boolean;
+  EclToICRF: TMat4D;   // ecliptical -> equatorial; the only frame conversion the merger performs
   SunBSP: TBSPFile;
   SunCache: TDictionary<Double, TArray<Double>>;
   coefBuf: TArray<Double>;
@@ -1217,7 +1310,32 @@ var
     Y := ClenshawCheb(C + SunNumCoef,    SunNumCoef, tau);
     Z := ClenshawCheb(C + 2*SunNumCoef,  SunNumCoef, tau);
   end;
-  procedure AddSunToRecord(Coef: PDouble; Mid, Radius: Double; NumCoef: Int64);   // Coef += Sun's SSB (re-fit onto [Mid,Radius])
+  // Every 3-component body is normalised to SPICE_J2000 (ICRF) on the way out, so the .bspx is frame-uniform
+  // and nothing downstream ever has to rotate. Only the two frames below can appear -- both are J2000, sharing
+  // the epoch and differing only in their axes, so the conversion is purely ecliptical -> equatorial: J2000 is
+  // already equatorial and needs no work, ECLIPJ2000 is one constant rotation away. Anything else we cannot
+  // express, so it stops the build here.
+  procedure CheckFrame(RefID, TargetID: Int64);
+  begin
+    if (RefID<>SPICE_J2000) and (RefID<>SPICE_ECLIPJ2000) then
+     raise Exception.Create(Format('Body %d is in SPICE reference frame %d: only %d (J2000/ICRF) and %d (ECLIPJ2000) can be merged.',
+                                   [TargetID, RefID, SPICE_J2000, SPICE_ECLIPJ2000]));
+  end;
+  // A Chebyshev fit is linear in its coefficients and the ecliptical->equatorial rotation is constant in time, so
+  // rotating each coefficient triple is exactly equivalent to rotating the interpolated vector -- no re-fit,
+  // no loss. Layout is component-major: NumCoef X's, then NumCoef Y's, then NumCoef Z's.
+  procedure RotCoefToICRF(Coef: PDouble; NumCoef, FromRef: Int64);
+  var k: Int64; V: TVec4D;
+  begin
+    if FromRef=SPICE_J2000 then Exit;
+    for k := 0 to NumCoef-1 do
+     begin
+      V.X:=Coef[k]; V.Y:=Coef[NumCoef+k]; V.Z:=Coef[2*NumCoef+k]; V.W:=0.0;
+      V:=V*EclToICRF;
+      Coef[k]:=V.X; Coef[NumCoef+k]:=V.Y; Coef[2*NumCoef+k]:=V.Z;
+     end;
+  end;
+  procedure AddSunToRecord(Coef: PDouble; Mid, Radius: Double; NumCoef: Int64);   // Coef += Sun's SSB (re-fit onto [Mid,Radius]), in ICRF
   var epochs: TArray<Double>; states: TState4DArray; suncoef, cached: TArray<Double>; k, tot: Int64; X, Y, Z: Double;
   begin
     tot := 3*NumCoef;
@@ -1227,10 +1345,12 @@ var
     ChebyshevNodeEpochs(Mid, Radius, NumCoef, @epochs[0]);
     for k := 0 to NumCoef-1 do begin SunSSB(epochs[k], X, Y, Z); states[k].R.X := X; states[k].R.Y := Y; states[k].R.Z := Z; end;
     ChebyshevEncode(states, 3, @suncoef[0]);
+    RotCoefToICRF(@suncoef[0], NumCoef, SunRefID);   // callers hand us ICRF coefficients, so the Sun must be ICRF too (cache holds it rotated)
     for k := 0 to tot-1 do Coef[k] := Coef[k] + suncoef[k];
     SunCache.AddOrSetValue(Mid, Copy(suncoef, 0, tot));
   end;
 begin
+  EclToICRF:=GetRotMat4D(CEPS, 1.0, 0.0, 0.0);   // ecliptical -> equatorial; same constant and sense as BSPXFile's EclToICRF
   Idx1:=-1; Idx2:=-1; Idx199:=-1; Idx299:=-1;
   BSPFile.FileName:='';
   BSPFile.Stream:=nil;
@@ -1413,8 +1533,10 @@ begin
             SunRecBytes  := SunBSP.TgtRecSize[i];
             SunNumCoef   := (SunRecBytes - SizeOf(TBSPSegmentRecordStart)) div (3*SizeOf(Double));
             SunBase      := PByte(SunBSP.Stream.Memory) + SunBSP.Ptr.datptr[i];
+            SunRefID     := SunBSP.Rec.dsc.DESC[i].refID;
+            CheckFrame(SunRefID, 10);
             SunAvail     := True;
-            Memo.Lines.Append(Format('Sun re-centring source: %s  (segment #%d, %d coeffs, %d records)', [ExtractFileName(FFiles[k]), i, SunNumCoef, SunN]));
+            Memo.Lines.Append(Format('Sun re-centring source: %s  (segment #%d, %d coeffs, %d records, frame %d)', [ExtractFileName(FFiles[k]), i, SunNumCoef, SunN, SunRefID]));
             Break;
            end;
          if SunAvail then Break;
@@ -1498,6 +1620,7 @@ begin
                 if KBOSeg[kbSeg].Ep1>KBOmax then KBOmax:=KBOSeg[kbSeg].Ep1;
                end;
              if not SunAvail then raise Exception.Create('Cannot re-centre type 21 body '+IntToStr(BSPXDesc[jj].TargetID)+' to the SSB: no Sun (id 10, centre 0, type 2) among the inputs.');
+             CheckFrame(BSPXDesc[jj].RefID, BSPXDesc[jj].TargetID);   // rotated to ICRF per record below
              SetLength(kbSt, kbNumCoef);
              if Length(coefBuf)<3*kbNumCoef then SetLength(coefBuf, 3*kbNumCoef);
             end;
@@ -1517,8 +1640,9 @@ begin
                MDAEvalSegment(KBOSeg[kbSeg].Ptr, KBOSeg[kbSeg].Len, kbEp[kbM], @kbState[0]);
                kbSt[kbM].R.X:=kbState[0]; kbSt[kbM].R.Y:=kbState[1]; kbSt[kbM].R.Z:=kbState[2];
               end;
-             ChebyshevEncode(kbSt, 3, @coefBuf[0]);         // heliocentric Chebyshev coefficients
-             AddSunToRecord(@coefBuf[0], kbMid, 1382400.0, kbNumCoef);   // += Sun SSB -> barycentric
+             ChebyshevEncode(kbSt, 3, @coefBuf[0]);         // heliocentric Chebyshev coefficients, in the source's frame
+             RotCoefToICRF(@coefBuf[0], kbNumCoef, BSPXDesc[jj].RefID);   // -> ICRF, so the Sun below adds in the same frame
+             AddSunToRecord(@coefBuf[0], kbMid, 1382400.0, kbNumCoef);     // += Sun SSB -> barycentric
              if Stream.Write(coefBuf[0], 3*kbNumCoef*SizeOf(Double))<>3*kbNumCoef*SizeOf(Double) then raise Exception.Create('File write error: '+ExtractFileName(FileName));
              if IsInfinite(BSPXDesc[jj].T0) then begin BSPXDesc[jj].T0:=kbMid; BSPXDesc[jj].Epoch0:=kbMid-1382400.0; end;
              BSPXDesc[jj].T1:=kbMid; BSPXDesc[jj].Epoch1:=kbMid+1382400.0;
@@ -1557,6 +1681,11 @@ begin
                                                        14: BSPXDesc[jj].NumComp:=2;
                                                       else BSPXDesc[jj].NumComp:=3;
                   end;
+                  // RefID stays the SOURCE frame for the whole build (the record loop rotates by it, and the
+                  // discontinuity check below compares against it); it is stamped to SPICE_J2000 just before the
+                  // descriptors are written. Only 3-component bodies are vectors -- the angle sets (ids 14, 16,
+                  // 1000000000..2) carry no frame we could rotate, so they pass through untouched.
+                  if BSPXDesc[jj].NumComp=3 then CheckFrame(BSPXDesc[jj].RefID, BSPXDesc[jj].TargetID);
                   if (BSPXDesc[jj].CenterID=10) and (BSPXDesc[jj].NumComp=3) then BSPXDesc[jj].CenterID:=0;   // heliocentric -> SSB (record data re-centred below)
                   BSPXDesc[jj].RecLen:=BSPFile.TgtRecSize[i]-SizeOf(TBSPSegmentRecordStart);
                   BSPXDesc[jj].NumRec:=0;
@@ -1633,12 +1762,16 @@ begin
            if ZeroDesc or ((BSPSgmRecStart.MIDPOINT>=Ep0) and (BSPSgmRecStart.MIDPOINT<=Ep1)) then
             begin
              if (not ZeroDesc) and (not IsInfinite(BSPXDesc[jj].T1)) and (BSPSgmRecStart.MIDPOINT<>BSPXDesc[jj].T1+BSPXDesc[jj].ValIntv) then raise Exception.Create(Format('Data discrepancy error (MIDPOINT=%g, expected=%g) in record #%d)', [BSPSgmRecStart.MIDPOINT, BSPXDesc[jj].T1+BSPXDesc[jj].ValIntv, k]));
-             if (BSPFile.Rec.dsc.DESC[i].centerID=10) and (BSPXDesc[jj].NumComp=3) then
-              begin   // heliocentric body: read coefficients, add the Sun's SSB, write the SSB-relative record
-               if not SunAvail then raise Exception.Create('Cannot re-centre heliocentric body '+IntToStr(BSPXDesc[jj].TargetID)+' to the SSB: no Sun (id 10, centre 0, type 2) among the selected input files.');
+             // Three cases: a heliocentric body needs the Sun added (and so must reach ICRF first); an ecliptical
+             // body needs only the rotation; anything already ICRF (the common case) still goes out as a raw copy.
+             if (BSPXDesc[jj].NumComp=3) and ((BSPFile.Rec.dsc.DESC[i].centerID=10) or (BSPXDesc[jj].RefID<>SPICE_J2000)) then
+              begin
+               if (BSPFile.Rec.dsc.DESC[i].centerID=10) and (not SunAvail) then raise Exception.Create('Cannot re-centre heliocentric body '+IntToStr(BSPXDesc[jj].TargetID)+' to the SSB: no Sun (id 10, centre 0, type 2) among the selected input files.');
                if Length(coefBuf) < BSPXDesc[jj].RecLen div SizeOf(Double) then SetLength(coefBuf, BSPXDesc[jj].RecLen div SizeOf(Double));
                if BSPFile.Stream.Read(coefBuf[0], BSPXDesc[jj].RecLen)<>BSPXDesc[jj].RecLen then raise Exception.Create('File read error: '+ExtractFileName(BSPFile.FileName));
-               AddSunToRecord(@coefBuf[0], BSPSgmRecStart.MIDPOINT, BSPSgmRecStart.RADIUS, BSPXDesc[jj].NumCoef);
+               RotCoefToICRF(@coefBuf[0], BSPXDesc[jj].NumCoef, BSPXDesc[jj].RefID);
+               if BSPFile.Rec.dsc.DESC[i].centerID=10 then
+                AddSunToRecord(@coefBuf[0], BSPSgmRecStart.MIDPOINT, BSPSgmRecStart.RADIUS, BSPXDesc[jj].NumCoef);   // += Sun SSB, both now ICRF
                if Stream.Write(coefBuf[0], BSPXDesc[jj].RecLen)<>BSPXDesc[jj].RecLen then raise Exception.Create('File write error: '+ExtractFileName(FileName));
               end
              else
@@ -1683,6 +1816,9 @@ begin
         end;
        BSPXHdr.Data.Size:=Stream.Size-SizeOf(TBSPXHdr);
        BSPXHdr.Desc.Ptr:=Stream.Position;
+       // Every vector body's records were rotated to ICRF as they were written, so the descriptors must now say
+       // so -- up to here RefID carried the SOURCE frame, which the record loop needed. Angle sets keep theirs.
+       for i:=0 to Length(BSPXDesc)-1 do if BSPXDesc[i].NumComp=3 then BSPXDesc[i].RefID:=SPICE_J2000;
        for i:=0 to Length(BSPXDesc)-1 do if Stream.Write(BSPXDesc[i], SizeOf(TBSPXDesc))<>SizeOf(TBSPXDesc) then raise Exception.Create('File write error: '+ExtractFileName(FileName));
        BSPXHdr.Desc.Size:=BSPXHdr.Desc.Num*SizeOf(TBSPXDesc);
        BSPXHdr.Cnst.Ptr:=Stream.Position;

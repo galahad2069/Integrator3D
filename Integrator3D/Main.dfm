@@ -55,8 +55,9 @@ object MainForm: TMainForm
       Tag = 6
       Caption = 'S&peed'
       object PMSpeed02: TMenuItem
-        Tag = 900
+        Tag = 60
         Action = ActionSpeed0
+        Caption = '1 minute/sec'
       end
       object PMSpeed01: TMenuItem
         Tag = 1800

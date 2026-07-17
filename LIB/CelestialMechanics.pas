@@ -3616,7 +3616,7 @@ procedure InitBodyConstants;
 // three places: names (BSPFile.BSPTargetCodes), GM (BSPXFile perturber table) and J2/3/4/Req/pole
 // (DE440OblatenessDefault, pulled in per body below). Populated on first use only -- NOT at unit init -- and
 // freed in finalization, so a TBSPXFile created merely to Init/list a file allocates none of it. Asteroid/KBO
-// GMs are AU^3/day^2 literals converted at compile time via AU_KM/SEC2DAY. Indices 0..10 stay aligned with
+// GMs are AU^3/day^2 literals converted via AU_KM/SEC2DAY. Indices 0..10 stay aligned with
 // codes 0..10 for the O(1) lookup path.
 begin
   if Length(BodyConstants)>0 then Exit;   // populate once; idempotent
@@ -4659,6 +4659,16 @@ begin
   Add(2001107, '(1107) Lictoria', 0.05796560224683666);
   Add(2001171, '(1171) Rusthawelia', 0.058646845045052146);
   Add(2001467, '(1467) Mashona', 0.04278319866056383);
+
+  Add(2002060, '(2060) Chiron', 0.3203664);
+  Add(20002060, '(2060) Chiron', 0.3203664);
+  Add(2010199, '(10199) Chariklo', 0.4271552);
+  Add(20010199, '(10199) Chariklo', 0.4271552);
+  Add(2095626, '(95626) 2002 GZ32', 0.62337962);
+  Add(20095626, '(95626) 2002 GZ32', 0.62337962);
+  Add(2447178, '(447178) 2005 RO43', 0.318697825);
+  Add(20447178, '(447178) 2005 RO43', 0.318697825);
+
   Add(2136199, '(136199) Eris', 1114.6882872739886);
   Add(2136108, '(136108) Haumea', 267.3706757830828);
   Add(2136472, '(136472) Makemake', 153.91386516844494);

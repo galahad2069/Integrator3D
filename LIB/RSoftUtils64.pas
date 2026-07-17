@@ -4,7 +4,7 @@ interface
 
 uses
  Winapi.Windows,
- System.Classes, System.SysUtils, System.RegularExpressions,
+ System.Classes, System.SysUtils, System.RegularExpressions, System.Win.Registry,
  Winapi.ShellApi,
  Vcl.Forms,
  RSoftClasses64, AsmUtils64;
@@ -84,6 +84,7 @@ procedure TryStrToInt64(const S: string; var Value: Int64; const ErrorMsg: strin
 procedure TryStrToNum64(const S: string; var Value: Double; const ErrorMsg: string);
 procedure GenericQuickSort(Data: Pointer; L, R: Int64; CmpFunc: TCmpFunc; XChgProc: TXChgProc);
 function LoadStrFromIni(const IniFileName, VarNameTag: string): string;
+function GetSystemProxy(out AHost: string; out APort: Integer): Boolean;   // the user's manual Windows proxy (see the implementation for why THTTPClient can't be trusted to find it)
 
 implementation
 
@@ -1277,6 +1278,58 @@ begin
    Result:='';
   end;
   L.Free;
+end;
+
+function GetSystemProxy(out AHost: string; out APort: Integer): Boolean;
+// Reads the user's MANUAL proxy straight from the Windows Internet Settings. Do NOT leave this to THTTPClient:
+// its own discovery only falls back to the manual entry if there is neither a PAC URL nor "Automatically detect
+// settings" (WPAD) configured -- and WPAD is ticked by default. With WPAD ticked but no WPAD server answering,
+// that discovery fails and the RTL then issues the request with NO proxy at all; behind a firewall that does not
+// fail fast, it hangs until the timeout (and never receives a 407, so no auth prompt either). Assigning the
+// result to THTTPClient.ProxySettings takes the RTL's explicit-proxy path and skips that discovery entirely.
+// Leave ProxySettings.UserName empty: supplying it up front forces Basic auth, whereas letting the proxy's 407
+// arrive lets WinHTTP negotiate whatever it actually offers (Negotiate/NTLM/Digest/Basic).
+var
+  R: TRegistry; s, entry: string; L: TStringList; i, p: Integer;
+begin
+  Result:=False; AHost:=''; APort:=0;
+  s:='';
+  R:=TRegistry.Create(KEY_READ);
+  try
+   R.RootKey:=HKEY_CURRENT_USER;
+   if not R.OpenKeyReadOnly('Software\Microsoft\Windows\CurrentVersion\Internet Settings') then Exit;
+   if (not R.ValueExists('ProxyEnable')) or (R.ReadInteger('ProxyEnable')=0) then Exit;   // proxy switched off: honour that, go direct
+   if R.ValueExists('ProxyServer') then s:=Trim(R.ReadString('ProxyServer'));
+  finally
+   R.Free;
+  end;
+  if s='' then Exit;
+  // ProxyServer is either a bare 'host:port' or a per-protocol list, 'http=host:port;https=host:port;ftp=...'
+  if Pos('=', s)>0 then
+   begin
+    L:=TStringList.Create;
+    try
+     L.Delimiter:=';'; L.StrictDelimiter:=True; L.DelimitedText:=s;
+     s:='';
+     for i:=0 to L.Count-1 do
+      begin
+       entry:=Trim(L[i]);
+       if SameText(Copy(entry, 1, 6), 'https=') then begin s:=Trim(Copy(entry, 7, MaxInt)); Break; end;   // prefer the https entry: these callers fetch https
+       if SameText(Copy(entry, 1, 5), 'http=') and (s='') then s:=Trim(Copy(entry, 6, MaxInt));           // otherwise the http one (usually the same box)
+      end;
+    finally
+     L.Free;
+    end;
+    if s='' then Exit;
+   end;
+  p:=LastDelimiter(':', s);
+  if p>0 then
+   begin
+    AHost:=Trim(Copy(s, 1, p-1));
+    APort:=StrToIntDef(Trim(Copy(s, p+1, MaxInt)), 0);
+   end
+  else AHost:=s;
+  Result:=AHost<>'';
 end;
 
 end.

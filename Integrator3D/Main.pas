@@ -24,6 +24,12 @@ const
   SPHERE_SLICES     = 32;    // gluSphere longitudinal subdivisions
   SPHERE_STACKS     = 24;    // gluSphere latitudinal subdivisions
   SPHERE_MIN_PIXELS = 5.0;   // a body draws as a textured sphere only when its projected radius exceeds this (else a dot)
+  DOT_PIXELS        = 10.0;  // body-dot diameter in px -- as judged on a DOT_REF_VIEWH-tall viewport, scaled to the actual one by BodyDotSize
+  DOT_REF_VIEWH     = 1500.0;// the viewport height DOT_PIXELS was judged against (a maximised window on a 2560x1600 screen). Raise it to make dots smaller everywhere, lower it to make them bigger
+  DOT_MIN_PIXELS    = 4.0;   // floor: a dot has to stay findable however small the window gets
+  FROZEN_DOT_MUL    = 0.8;   // the marker at the head of a collided integrand's fading trail, as a fraction of a body dot (was a flat 8 px against the body's 10)
+  STAR_REF_SCREENH  = 1600.0;// the screen height the PS[] magnitude->px table was calibrated against (a 2560x1600 screen, main window maximised). See LoadStarList
+  STAR_MIN_PIXELS   = 1.0;   // floor: below a pixel the faintest magnitudes just fade out of existence
   RING_INNER_MUL    = 1.2;   // ring annulus inner/outer radius as a multiple of the planet Req (tuned to the ring texture's radial span)
   RING_OUTER_MUL    = 2.3;
   SPHERE_LON0       = 90.0;  // texture-seam alignment (deg): gluSphere's s=0 seam sits at local +Y, 90 deg from the
@@ -243,6 +249,7 @@ type
     function  LoadPNGTexture(const fn: string): GLuint; // load a PNG (with alpha) into a GL texture; 0 on failure (ring textures)
     procedure DrawRing(const Center, AxisX, AxisY: TVec4D; innerR, outerR, planetR: Double; texID: GLuint);  // textured annulus in the planet equatorial plane (planet shadow when lit)
     function  DrawBodySphere(i: Int64; const Pt: TVec4D): Boolean;  // draw body i as a textured, axis-oriented sphere if eligible; False -> caller draws a dot
+    function  BodyDotSize: Single;                                  // glPointSize for a body dot, scaled to the current viewport height
     procedure DrawCorona(const RotM: array of GLdouble);            // additive camera-facing glow billboard at the Sun (RotM = camera rotation for right/up)
     procedure BuildCoronaTexture;                                   // generate the radial Sun-glow texture once (no external file)
     procedure DrawOrbits(Integrands: Boolean);        // Integrands=False -> BSPX bodies (PMOrbitMode); True -> integrands (PMOrbitModeInt)
@@ -503,6 +510,16 @@ end;
 
 procedure TMainForm.FormCreate(Sender: TObject);
 begin
+  // The numeric input fields accept '.' and nothing else, so the app must read and write '.' regardless of the
+  // machine's locale -- on a comma-locale system the RTL would otherwise reject '1.5' on input AND display
+  // '1,5', a value the input filter will not even let the user retype. This is the successor to the old global
+  // DecimalSeparator: SysUtils still keeps a global TFormatSettings, and the parameterless StrToFloat/FloatToStr
+  // overloads delegate to it, so this one assignment covers every conversion in the program, both directions.
+  // Set here, in the first form created, before anything can parse a number: the RTL warns that the global is
+  // not thread-safe, which concerns concurrent MUTATION -- writing it once at startup, before the render thread
+  // exists, is safe. Nothing is persisted as a float (the .ini holds only integers and a path), so no old
+  // settings file can be misread because of this.
+  FormatSettings.DecimalSeparator:='.';
   Application.OnHint:=OnHintDo;
   //DoubleBuffered:=True;
   ResetVars;
@@ -850,10 +867,20 @@ var
   Len: GLint;
   VertSrc, FragSrc: AnsiString;
   Stars: array of TVertexData;
+  starScale: Single;
 const
   z: string = 'Limiting magnitude:';
   PS: array[0..6] of Single = (14.0, 12.0, 10.0, 8.0, 6.0, 4.0, 2.0);
 begin
+  // PS[] is a magnitude->pixels table, and pixels are a bigger share of a short viewport than a tall one -- the
+  // same reason body dots need BodyDotSize. But star sizes are a per-vertex attribute baked into the VBO, so
+  // tracking the live viewport would mean re-uploading (or a shader uniform) on every resize, for a window that
+  // is maximised by default anyway. So calibrate ONCE, here, against the SCREEN -- i.e. the largest viewport this
+  // display can give -- and accept the rest: stars go relatively fatter as the window is shrunk, but they are no
+  // longer disproportionately fat on a smaller display, which was the actual complaint.
+  // Screen.Height is the primary monitor; on a multi-monitor desktop with mismatched heights the calibration
+  // follows the primary rather than whichever screen the window ends up on. Worth knowing, not worth chasing.
+  starScale:=Screen.Height/STAR_REF_SCREENH;
   FLM:=6.5;
   L:=TStringList.Create;
   F:=TStringList.Create;
@@ -886,7 +913,8 @@ begin
       j:=Round(vm); if j<Low(PS) then j:=Low(PS) else if j>High(PS) then j:=High(PS);
       vm:=vm-2.0; if vm<0.0 then vm:=0.0;
       if vm>FLM then vm:=0.25 else vm:=((FLM-vm)/FLM)*0.75+0.25;
-      Stars[i].PointSize:=PS[j];
+      Stars[i].PointSize:=PS[j]*starScale;
+      if Stars[i].PointSize<STAR_MIN_PIXELS then Stars[i].PointSize:=STAR_MIN_PIXELS;   // PS[] bottoms out at 2 px, so the faintest bucket would go sub-pixel below ~800 px of screen
       Stars[i].ColorR:=vm;
       Stars[i].ColorG:=vm;
       Stars[i].ColorB:=vm;
@@ -1643,6 +1671,18 @@ begin
   glColor4f(1.0, 1.0, 1.0, 1.0);
 end;
 
+function TMainForm.BodyDotSize: Single;
+// A dot is a fixed number of PIXELS, so it covers a bigger share of a short viewport than of a tall one: the
+// 10 px judged on a 2560x1600 screen looks fat on FHD and would look mean on 4K. Scaling with the viewport
+// height keeps the dot the same fraction of the image, so the picture merely scales between screens (and as the
+// window is resized). FViewH is exactly what glViewport is given, so this is real pixels on a high-DPI display
+// too. No upper clamp on purpose -- growing with the viewport IS the point; the driver's own GL_POINT_SIZE_RANGE
+// is the only ceiling that should apply.
+begin
+  Result := DOT_PIXELS * FViewH / DOT_REF_VIEWH;
+  if Result < DOT_MIN_PIXELS then Result := DOT_MIN_PIXELS;
+end;
+
 function TMainForm.DrawBodySphere(i: Int64; const Pt: TVec4D): Boolean;
 // If body i qualifies -- PMBodies on, has a loaded texture (implies Req>0), and is big enough on screen --
 // draw it as a textured sphere oriented to its spin axis and return True; else return False so the caller
@@ -1919,7 +1959,7 @@ begin
       if not DrawBodySphere(i, Pt) then
        begin
         glEnable(GL_POINT_SMOOTH);
-        glPointSize(10.0);
+        glPointSize(BodyDotSize);
         glBegin(GL_POINTS);
         glVertex3d(Pt.X, Pt.Y, Pt.Z);
         glEnd;
@@ -1989,7 +2029,7 @@ begin
       if not DrawBodySphere(i, Pt) then
        begin
         glEnable(GL_POINT_SMOOTH);
-        glPointSize(10.0);
+        glPointSize(BodyDotSize);
         glBegin(GL_POINTS);
         glVertex3d(Pt.X, Pt.Y, Pt.Z);
         glEnd;
@@ -2051,7 +2091,7 @@ begin
         if not DrawBodySphere(i, Pt) then
          begin
           glEnable(GL_POINT_SMOOTH);
-          glPointSize(10.0);
+          glPointSize(BodyDotSize);
           glBegin(GL_POINTS);
           glVertex3d(Pt.X, Pt.Y, Pt.Z);
           glEnd;
@@ -2087,7 +2127,7 @@ begin
       if not DrawBodySphere(i, Pt) then
        begin
         glEnable(GL_POINT_SMOOTH);
-        glPointSize(10.0);
+        glPointSize(BodyDotSize);
         glBegin(GL_POINTS);
         glVertex3d(Pt.X, Pt.Y, Pt.Z);
         glEnd;
@@ -3085,7 +3125,7 @@ begin
     if Length(FFrozen[i].Pts) > 0 then
      begin
       w := High(FFrozen[i].Pts);
-      glEnable(GL_POINT_SMOOTH); glPointSize(8.0);
+      glEnable(GL_POINT_SMOOTH); glPointSize(BodyDotSize*FROZEN_DOT_MUL);   // scales with the viewport like the body dots, keeping it the touch smaller it was tuned to be
       glBegin(GL_POINTS);
       glVertex3d(FFrozen[i].Pts[w].X*KM2AU, FFrozen[i].Pts[w].Y*KM2AU, FFrozen[i].Pts[w].Z*KM2AU);
       glEnd;
@@ -3335,9 +3375,6 @@ begin
       else
        FillChar(FBaryR, SizeOf(FBaryR), 0);
 
-      // Store a trail point for each DIRECT child of FBarycenter -- the only bodies DrawTrajectories draws
-      // trails for. (The former all-bodies branch, keyed on PMBodies.Checked, stored perturber trails that
-      // were never drawn and skipped massless moons; removed now that PMBodies is being repurposed.)
       for i := 0 to FBSPXFile.DescCount-1 do
        if FBSPXFile.Desc[i].CenterID = FBarycenter then
         begin

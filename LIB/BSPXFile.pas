@@ -12,6 +12,13 @@ const
   BSPX_VER = $00000001;
   HILL_FACTOR = 1.5;   // how far out a body still counts as belonging to a planetary system, as a multiple of that system's true Hill radius. Baked into ApproxSystemRadius once (at Open), so callers just compare a distance against it -- tune to taste
 
+  // SPICE reference frame codes, as stored verbatim in TBSPXDesc.RefID and as accepted by RelativeInterpolate2.
+  // These are SPICE's own numbering (see chgirf.f) -- never a local 0/1 index, so that a frame means the same
+  // thing everywhere: in the file, in the API, and in SPICE itself. Only these two are supported; the others
+  // (2 = B1950, 13 = GALACTIC, 16 = MARSIAU, body-fixed frames, ...) would need rotations we do not implement.
+  SPICE_J2000      = 1;    // J2000 mean equator & equinox (treated as ICRF here)
+  SPICE_ECLIPJ2000 = 17;   // J2000 mean ecliptic & equinox
+
 type
  TBSPXVer = packed record
    case Integer of
@@ -91,6 +98,7 @@ type
     FPerturberSoA: TPerturberSoA;    // packed perturber SoA (per node) handed to the PN force kernels; raw columns filled by PackPerturbers
     FMaxThreadCount: Integer;
     FApproxSystemRadii: array[0..10] of Double;   // per planetary barycentre: the radius within which a body still counts as belonging to its system (= HILL_FACTOR * the approximate Hill radius). Indexed by body id exactly like FHdr.GM (0=SSB, 1..9=planet BC, 10=Sun). 0 = unknown/not applicable. Filled once by ComputeApproxSystemRadii at the end of a successful Open
+    FSrcRefID: TDynInt64Array;                    // each descriptor's SPICE frame code AS STORED on disk, captured by Init. FDesc[].RefID is rewritten to SPICE_J2000 by NormaliseFramesToICRF once the data really is equatorial, so this is the only remaining record of the file's own frames -- and what Open must rotate by (it re-reads the raw coefficients on every call)
     function GetDesc(Index: Int64): PBSPXDesc;
     function GetDescCount: Int64;
     function GetBodyConst(Index: Int64): PBSPXBodyConst;
@@ -100,6 +108,7 @@ type
     procedure InterpolateCore1(DescIndex: Int64; T: Double; R: PVec4D);
     procedure InterpolateCore2(DescIndex: Int64; T: Double; S: PState4D);
     procedure SetPerturberStateCenterID(Value: Int64);
+    procedure NormaliseFramesToICRF;      // rotate any ECLIPJ2000 body's coefficients to the equatorial frame in RAM; called once, by Open, so everything downstream sees one frame
     procedure ComputeApproxSystemRadii;   // fill FApproxSystemRadii from the header GMs + the SSB->BC distances at the file's mid-epoch; called once, at the end of a successful Open
   public
     constructor Create;
@@ -265,6 +274,11 @@ begin
    if Stream.Seek(FHdr.Desc.Ptr, soFromBeginning)<>FHdr.Desc.Ptr then raise Exception.Create('Error seeking file: '+ExtractFileName(FileName));
    SetLength(FDesc, FHdr.Desc.Num);
    if Stream.Read(FDesc[0], FHdr.Desc.Size)<>FHdr.Desc.Size then raise Exception.Create('Error reading file: '+ExtractFileName(FileName));
+   // Remember each body's frame AS STORED: Open rewrites FDesc[].RefID to J2000 once it has rotated the data,
+   // so FDesc can no longer answer "what is on disk?" -- and Open must be able to ask that every time it runs
+   // (it re-reads the raw coefficients, while Close leaves FDesc standing).
+   SetLength(FSrcRefID, FHdr.Desc.Num);
+   for i:=0 to FHdr.Desc.Num-1 do FSrcRefID[i]:=FDesc[i].RefID;
    InitBodyConstants;   // allocate CelestialMechanics' canonical table before the reconciliation below reads it to
                         // fill holes (lazy: first file load, never at unit init -- this is BSPXFile's first need of it)
    // Constants section -> FCnst, guaranteed complete after this point (integrators then read with no checks):
@@ -453,6 +467,7 @@ begin
    FStream.Position:=FHdr.Data.Size;
    {$ENDIF}
 
+   NormaliseFramesToICRF;     // one-shot; outside the layout branches above, so it covers AoS and SoA alike. Must precede anything that reads coefficients
    ComputeApproxSystemRadii;   // one-shot; needs the descriptors AND the coefficient data loaded above, so it goes last
    Result:=True;
   except on E: Exception do begin
@@ -465,6 +480,65 @@ begin
   SetLength(Vec4DArray, 0);
   {$ENDIF}
   if FileStream<>nil then FileStream.Free;
+end;
+
+procedure TBSPXFile.NormaliseFramesToICRF;
+// Frame normalisation happens ONCE, here, so every consumer downstream can treat the in-RAM coefficients as
+// uniformly ICRF.  It has to: BatchInterpolate*/GetPerturberStates add and subtract these vectors ACROSS
+// bodies, which is meaningless on a mixed-frame file, and rotating per read would cost the integrators a
+// rotation per body per step for a case that is virtually always a no-op.  A file need not have been built by
+// BSPMerge (which already normalises), so we establish the invariant rather than assume it.
+//
+// Both supported frames are J2000 -- they share the epoch and differ only in their axes -- so the normalisation
+// is purely ecliptical -> equatorial: one constant rotation by CEPS.  A Chebyshev fit is linear in its
+// coefficients and that rotation does not vary with time, so rotating each coefficient triple is exactly
+// equivalent to rotating every interpolated vector -- velocity included, being the derivative of that same
+// fit.  No re-fit, no loss of accuracy.
+//
+// NB: this rewrites FDesc[].RefID in memory, so that field no longer matches its on-disk counterpart -- by
+// design: it describes the data as it now IS.  Only 3-component bodies are vectors; the angle sets (ids 14,
+// 16, 1000000000..2) carry no frame we could rotate and are left alone.
+//
+// We rotate by FSrcRefID (the disk truth from Init), never by FDesc[].RefID: Open re-reads the raw coefficients
+// every time it runs but Close leaves FDesc standing, so keying off the field we ourselves overwrite would make
+// a second Open skip the rotation and label ecliptical data as equatorial.  This way it is correct every call.
+const
+  {$IFDEF AVX2}
+  ELEM_STRIDE = SizeOf(TVec4D);   // AoS: one padded [X,Y,Z,W] per coefficient, components at RTOffset 0/8/16
+  {$ELSE}
+  ELEM_STRIDE = SizeOf(Double);   // SoA: contiguous per-component runs, components RTArrayLen apart
+  {$ENDIF}
+var
+  i, r, j: Int64;
+  M: TMat4D;
+  Base: UIntPtr;
+  PX, PY, PZ: PDouble;
+  V: TVec4D;
+begin
+  if Length(FSrcRefID)<>Length(FDesc) then raise Exception.Create('NormaliseFramesToICRF: source frame table missing (Init must precede Open)');
+  M:=GetRotMat4D(CEPS, 1.0, 0.0, 0.0);   // ecliptical -> equatorial (same constant and sense as RelativeInterpolate2's EclToICRF)
+  for i:=0 to Length(FDesc)-1 do
+   begin
+    if FDesc[i].NumComp<>3 then Continue;
+    if (FSrcRefID[i]<>SPICE_J2000) and (FSrcRefID[i]<>SPICE_ECLIPJ2000) then
+     raise Exception.Create(Format('Body %d is in SPICE reference frame %d: only %d (J2000/ICRF) and %d (ECLIPJ2000) are supported',
+                                   [FDesc[i].TargetID, FSrcRefID[i], SPICE_J2000, SPICE_ECLIPJ2000]));
+    if FSrcRefID[i]=SPICE_J2000 then Continue;   // the overwhelmingly common case: nothing to do
+    for r:=0 to FDesc[i].NumRec-1 do
+     begin
+      Base:=UIntPtr(FStream.Memory)+UIntPtr(FDesc[i].RTDataPtr+r*FDesc[i].RTRecLen);
+      for j:=0 to FDesc[i].NumCoef-1 do
+       begin
+        PX:=PDouble(Base+UIntPtr(j*ELEM_STRIDE+FDesc[i].RTOffsetX));
+        PY:=PDouble(Base+UIntPtr(j*ELEM_STRIDE+FDesc[i].RTOffsetY));
+        PZ:=PDouble(Base+UIntPtr(j*ELEM_STRIDE+FDesc[i].RTOffsetZ));
+        V.X:=PX^; V.Y:=PY^; V.Z:=PZ^; V.W:=0.0;
+        V:=V*M;
+        PX^:=V.X; PY^:=V.Y; PZ^:=V.Z;
+       end;
+     end;
+    FDesc[i].RefID:=SPICE_J2000;   // in RAM the data genuinely IS J2000 now
+   end;
 end;
 
 procedure TBSPXFile.ComputeApproxSystemRadii;
@@ -531,6 +605,7 @@ begin
   try
    SetLength(FDesc, 0);
    SetLength(FCnst, 0);
+   SetLength(FSrcRefID, 0);   // filled by Init, index-matched to FDesc
   except
   end;
   try
@@ -653,13 +728,15 @@ end;
 
 function TBSPXFile.RelativeInterpolate2(TargetID, CenterID, RefID: Int64; T: Double; S: PState4D): Boolean;
 // Returns TargetID's state relative to CenterID in reference frame RefID.
-//   RefID=0  ICRF (J2000 equatorial)
-//   RefID=1  J2000 ecliptical (= ICRF rotated by CEPS about the X axis)
+// All three IDs are SPICE codes -- RefID is a SPICE frame code just as TargetID/CenterID are SPICE body
+// codes, and just as TBSPXDesc.RefID is, so a frame number means the same thing here, in the file, and in
+// SPICE.  Supported: SPICE_J2000 (1, ICRF) and SPICE_ECLIPJ2000 (17, = ICRF rotated by CEPS about X).
+// Do NOT pass a 0/1 index: 0 is not a frame at all, and 1 is J2000/ICRF -- not "ecliptical".
 //
-// Descriptors in the file may be stored in different frames (FDesc[i].RefID).
-// All intermediate arithmetic is done in ICRF; each step is normalised to ICRF
-// before accumulation if its descriptor has RefID=1.  The single output rotation
-// (if RefID=1 was requested) is applied once at the very end.
+// All intermediate arithmetic is done in ICRF; a step is normalised to ICRF before accumulation only
+// if its descriptor really is ecliptical.  The single output rotation (if ECLIPJ2000 was requested) is
+// applied once at the very end.  Descriptor frames go through DescFrame(), which rejects frames we
+// cannot rotate rather than silently assuming one.
 //
 // Algorithm:
 //   1. Identity short-circuit  (TargetID = CenterID → zero state)
@@ -677,10 +754,23 @@ var
   i, j, di: Int64;
   Tmp: TState4D;
   EclToICRF, ICRFToEcl: TMat4D;
+
+  // A descriptor's stored SPICE frame code, checked against the two frames we can actually rotate between.
+  // Anything else (2 = B1950, 13 = GALACTIC, 16 = MARSIAU, a body-fixed frame, ...) is rejected rather than
+  // assumed -- a wrong assumption here silently rotates good data and is very hard to spot downstream.
+  function DescFrame(Idx: Int64): Int64;
+  begin
+   Result:=FDesc[Idx].RefID;
+   if (Result <> SPICE_J2000) and (Result <> SPICE_ECLIPJ2000) then
+    raise Exception.Create(Format('Descriptor %d (target %d, centre %d) is in SPICE reference frame %d: only %d (J2000/ICRF) and %d (ECLIPJ2000) are supported',
+                                  [Idx, FDesc[Idx].TargetID, FDesc[Idx].CenterID, Result, SPICE_J2000, SPICE_ECLIPJ2000]));
+  end;
+
 begin
   try
-   if (RefID < 0) or (RefID > 1) then
-    raise Exception.Create(Format('Invalid reference frame (%d): only 0 (ICRF) and 1 (J2000 ecliptical) are supported', [RefID]));
+   if (RefID <> SPICE_J2000) and (RefID <> SPICE_ECLIPJ2000) then
+    raise Exception.Create(Format('Invalid SPICE reference frame code (%d): only %d (J2000/ICRF) and %d (ECLIPJ2000) are supported',
+                                  [RefID, SPICE_J2000, SPICE_ECLIPJ2000]));
 
    // Precompute both rotation matrices (cheap; avoids repeated trig in loops)
    EclToICRF := GetRotMat4D( CEPS, 1.0, 0.0, 0.0);   // ecliptical → ICRF
@@ -702,10 +792,10 @@ begin
      InterpolateCore2(di, T, S);
      S.R.W := 1.0; S.V.W := 0.0; S.Epoch := T; S.GM := FDesc[di].GM;
      // transform from the descriptor's stored frame to the requested output frame
-     if FDesc[di].RefID <> RefID then
+     if DescFrame(di) <> RefID then
       begin
-       if FDesc[di].RefID = 0 then begin S.R := S.R * ICRFToEcl; S.V := S.V * ICRFToEcl; end
-                               else begin S.R := S.R * EclToICRF; S.V := S.V * EclToICRF; end;
+       if DescFrame(di) = SPICE_J2000 then begin S.R := S.R * ICRFToEcl; S.V := S.V * ICRFToEcl; end
+                                       else begin S.R := S.R * EclToICRF; S.V := S.V * EclToICRF; end;
       end;
      Result := True; Exit;
     end;
@@ -751,7 +841,7 @@ begin
    for i := 0 to LCA_T - 1 do
     begin
      InterpolateCore2(TDesc[i], T, @Tmp);
-     if FDesc[TDesc[i]].RefID = 1 then
+     if DescFrame(TDesc[i]) = SPICE_ECLIPJ2000 then
       begin Tmp.R := Tmp.R * EclToICRF; Tmp.V := Tmp.V * EclToICRF; end;
      S.R := S.R + Tmp.R;
      S.V := S.V + Tmp.V;
@@ -759,7 +849,7 @@ begin
    for i := 0 to LCA_C - 1 do
     begin
      InterpolateCore2(CDesc[i], T, @Tmp);
-     if FDesc[CDesc[i]].RefID = 1 then
+     if DescFrame(CDesc[i]) = SPICE_ECLIPJ2000 then
       begin Tmp.R := Tmp.R * EclToICRF; Tmp.V := Tmp.V * EclToICRF; end;
      S.R := S.R - Tmp.R;
      S.V := S.V - Tmp.V;
@@ -769,7 +859,7 @@ begin
    S.GM  := GetPerturberGM(TargetID);
 
    // Single output rotation from ICRF to the requested frame
-   if RefID = 1 then
+   if RefID = SPICE_ECLIPJ2000 then
     begin S.R := S.R * ICRFToEcl; S.V := S.V * ICRFToEcl; end;
 
    Result := True;
