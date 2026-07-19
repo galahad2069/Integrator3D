@@ -4,7 +4,7 @@ object VecForm: TVecForm
   BorderIcons = [biSystemMenu]
   BorderStyle = bsSingle
   Caption = 'Add integrand'
-  ClientHeight = 740
+  ClientHeight = 761
   ClientWidth = 294
   Color = clBtnFace
   Font.Charset = DEFAULT_CHARSET
@@ -34,12 +34,13 @@ object VecForm: TVecForm
     ShowHint = True
     TabOrder = 1
     TextHint = '<select center>'
-    OnChange = EnableStartBtn
+    OnChange = CenterBoxChange
     OnDrawItem = ComboDrawItem
+    ExplicitWidth = 288
   end
   object FrameBox: TComboBox
     Left = 0
-    Top = 46
+    Top = 44
     Width = 294
     Height = 21
     Hint = 'Reference frame'
@@ -61,21 +62,22 @@ object VecForm: TVecForm
     Items.Strings = (
       'ICRF (J2000 Equatorial)'
       'J2000 Ecliptical')
+    ExplicitWidth = 288
   end
   object Panel_Input: TPanel
     Left = 0
-    Top = 69
+    Top = 65
     Width = 294
-    Height = 386
+    Height = 394
     Align = alClient
     BevelOuter = bvNone
     TabOrder = 3
     ExplicitWidth = 288
-    ExplicitHeight = 369
+    ExplicitHeight = 377
     object Splitter1: TSplitter
       Left = 75
       Top = 0
-      Height = 386
+      Height = 394
       ExplicitLeft = 120
       ExplicitTop = 112
       ExplicitHeight = 100
@@ -83,7 +85,7 @@ object VecForm: TVecForm
     object Splitter2: TSplitter
       Left = 216
       Top = 0
-      Height = 386
+      Height = 394
       Align = alRight
       ExplicitLeft = 160
       ExplicitTop = 152
@@ -93,7 +95,7 @@ object VecForm: TVecForm
       Left = 0
       Top = 0
       Width = 75
-      Height = 386
+      Height = 394
       Align = alLeft
       Constraints.MaxWidth = 100
       Constraints.MinWidth = 50
@@ -104,7 +106,7 @@ object VecForm: TVecForm
       Font.Style = []
       ParentFont = False
       TabOrder = 0
-      ExplicitHeight = 369
+      ExplicitHeight = 377
       object Panel_Name_Header: TPanel
         Left = 1
         Top = 1
@@ -117,7 +119,7 @@ object VecForm: TVecForm
       object Name_e: TPanel
         AlignWithMargins = True
         Left = 1
-        Top = 241
+        Top = 249
         Width = 65
         Height = 16
         Hint = 'Eccentricity'
@@ -133,12 +135,12 @@ object VecForm: TVecForm
         ParentShowHint = False
         ShowHint = True
         TabOrder = 15
-        ExplicitTop = 224
+        ExplicitTop = 232
       end
       object Name_TPP: TPanel
         AlignWithMargins = True
         Left = 1
-        Top = 337
+        Top = 345
         Width = 65
         Height = 16
         Hint = 'Time of periapsis passage (TDB)'
@@ -154,12 +156,12 @@ object VecForm: TVecForm
         ParentShowHint = False
         ShowHint = True
         TabOrder = 21
-        ExplicitTop = 320
+        ExplicitTop = 328
       end
       object Name_Incl: TPanel
         AlignWithMargins = True
         Left = 1
-        Top = 321
+        Top = 329
         Width = 65
         Height = 16
         Hint = 'Inclination'
@@ -175,12 +177,12 @@ object VecForm: TVecForm
         ParentShowHint = False
         ShowHint = True
         TabOrder = 20
-        ExplicitTop = 304
+        ExplicitTop = 312
       end
       object Name_Node: TPanel
         AlignWithMargins = True
         Left = 1
-        Top = 305
+        Top = 313
         Width = 65
         Height = 16
         Hint = 'Argument of ascending node'
@@ -196,12 +198,12 @@ object VecForm: TVecForm
         ParentShowHint = False
         ShowHint = True
         TabOrder = 19
-        ExplicitTop = 288
+        ExplicitTop = 296
       end
       object Name_Peri: TPanel
         AlignWithMargins = True
         Left = 1
-        Top = 289
+        Top = 297
         Width = 65
         Height = 16
         Hint = 'Argument of periapsis'
@@ -217,12 +219,12 @@ object VecForm: TVecForm
         ParentShowHint = False
         ShowHint = True
         TabOrder = 18
-        ExplicitTop = 272
+        ExplicitTop = 280
       end
       object Name_q: TPanel
         AlignWithMargins = True
         Left = 1
-        Top = 257
+        Top = 265
         Width = 65
         Height = 16
         Hint = 'Periapsis distance'
@@ -238,12 +240,12 @@ object VecForm: TVecForm
         ParentShowHint = False
         ShowHint = True
         TabOrder = 16
-        ExplicitTop = 240
+        ExplicitTop = 248
       end
       object Name_Mean: TPanel
         AlignWithMargins = True
         Left = 1
-        Top = 225
+        Top = 233
         Width = 65
         Height = 16
         Hint = 'Mean anomaly'
@@ -259,12 +261,12 @@ object VecForm: TVecForm
         ParentShowHint = False
         ShowHint = True
         TabOrder = 14
-        ExplicitTop = 208
+        ExplicitTop = 216
       end
       object Name_True: TPanel
         AlignWithMargins = True
         Left = 1
-        Top = 209
+        Top = 217
         Width = 65
         Height = 16
         Hint = 'True anomaly'
@@ -280,7 +282,7 @@ object VecForm: TVecForm
         ParentShowHint = False
         ShowHint = True
         TabOrder = 13
-        ExplicitTop = 192
+        ExplicitTop = 200
       end
       object Name_Epoch: TPanel
         AlignWithMargins = True
@@ -305,7 +307,7 @@ object VecForm: TVecForm
       object Name_Period: TPanel
         AlignWithMargins = True
         Left = 1
-        Top = 369
+        Top = 377
         Width = 65
         Height = 16
         Hint = 'Orbital period'
@@ -321,12 +323,12 @@ object VecForm: TVecForm
         ParentShowHint = False
         ShowHint = True
         TabOrder = 23
-        ExplicitTop = 352
+        ExplicitTop = 360
       end
       object name_n: TPanel
         AlignWithMargins = True
         Left = 1
-        Top = 353
+        Top = 361
         Width = 65
         Height = 16
         Hint = 'Mean motion'
@@ -342,12 +344,12 @@ object VecForm: TVecForm
         ParentShowHint = False
         ShowHint = True
         TabOrder = 22
-        ExplicitTop = 336
+        ExplicitTop = 344
       end
       object Name_a: TPanel
         AlignWithMargins = True
         Left = 1
-        Top = 273
+        Top = 281
         Width = 65
         Height = 16
         Hint = 'Semi-major axis'
@@ -363,7 +365,7 @@ object VecForm: TVecForm
         ParentShowHint = False
         ShowHint = True
         TabOrder = 17
-        ExplicitTop = 256
+        ExplicitTop = 264
       end
       object Panel1: TPanel
         Left = 1
@@ -572,12 +574,32 @@ object VecForm: TVecForm
         ShowHint = True
         TabOrder = 12
       end
+      object Name_BC: TPanel
+        AlignWithMargins = True
+        Left = 1
+        Top = 205
+        Width = 65
+        Height = 16
+        Hint = 'Ballistic coefficient'
+        Margins.Left = 0
+        Margins.Top = 0
+        Margins.Right = 8
+        Margins.Bottom = 0
+        Align = alTop
+        Alignment = taRightJustify
+        BevelOuter = bvNone
+        Caption = 'BC'
+        Padding.Right = 8
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 25
+      end
     end
     object Panel_IUnits: TPanel
       Left = 219
       Top = 0
       Width = 75
-      Height = 386
+      Height = 394
       Align = alRight
       Constraints.MaxWidth = 100
       Constraints.MinWidth = 50
@@ -589,7 +611,7 @@ object VecForm: TVecForm
       ParentFont = False
       TabOrder = 2
       ExplicitLeft = 213
-      ExplicitHeight = 369
+      ExplicitHeight = 377
       object Panel_Unit_Header: TPanel
         Left = 1
         Top = 1
@@ -601,7 +623,7 @@ object VecForm: TVecForm
       end
       object Unit_TPP: TButton
         Left = 1
-        Top = 337
+        Top = 345
         Width = 73
         Height = 16
         Align = alBottom
@@ -610,11 +632,11 @@ object VecForm: TVecForm
         ShowHint = True
         TabOrder = 21
         OnClick = UnitClick_Epoch
-        ExplicitTop = 320
+        ExplicitTop = 328
       end
       object Unit_Period: TButton
         Left = 1
-        Top = 369
+        Top = 377
         Width = 73
         Height = 16
         Align = alBottom
@@ -623,11 +645,11 @@ object VecForm: TVecForm
         ShowHint = True
         TabOrder = 23
         OnClick = UnitClick_Time
-        ExplicitTop = 352
+        ExplicitTop = 360
       end
       object Unit_n: TButton
         Left = 1
-        Top = 353
+        Top = 361
         Width = 73
         Height = 16
         Align = alBottom
@@ -636,11 +658,11 @@ object VecForm: TVecForm
         ShowHint = True
         TabOrder = 22
         OnClick = UnitClick_AnglePerTime
-        ExplicitTop = 336
+        ExplicitTop = 344
       end
       object Unit_a: TButton
         Left = 1
-        Top = 273
+        Top = 281
         Width = 73
         Height = 16
         Align = alBottom
@@ -649,7 +671,7 @@ object VecForm: TVecForm
         ShowHint = True
         TabOrder = 17
         OnClick = UnitClick_Dist
-        ExplicitTop = 256
+        ExplicitTop = 264
       end
       object Unit_Epoch: TButton
         Left = 1
@@ -664,8 +686,9 @@ object VecForm: TVecForm
         OnClick = Unit_EpochClick
       end
       object Unit_Incl: TButton
+        Tag = 1
         Left = 1
-        Top = 321
+        Top = 329
         Width = 73
         Height = 16
         Align = alBottom
@@ -674,11 +697,12 @@ object VecForm: TVecForm
         ShowHint = True
         TabOrder = 20
         OnClick = UnitClick_Angle
-        ExplicitTop = 304
+        ExplicitTop = 312
       end
       object Unit_Node: TButton
+        Tag = 1
         Left = 1
-        Top = 305
+        Top = 313
         Width = 73
         Height = 16
         Align = alBottom
@@ -687,11 +711,12 @@ object VecForm: TVecForm
         ShowHint = True
         TabOrder = 19
         OnClick = UnitClick_Angle
-        ExplicitTop = 288
+        ExplicitTop = 296
       end
       object Unit_Peri: TButton
+        Tag = 1
         Left = 1
-        Top = 289
+        Top = 297
         Width = 73
         Height = 16
         Align = alBottom
@@ -700,11 +725,11 @@ object VecForm: TVecForm
         ShowHint = True
         TabOrder = 18
         OnClick = UnitClick_Angle
-        ExplicitTop = 272
+        ExplicitTop = 280
       end
       object Unit_q: TButton
         Left = 1
-        Top = 257
+        Top = 265
         Width = 73
         Height = 16
         Align = alBottom
@@ -713,11 +738,11 @@ object VecForm: TVecForm
         ShowHint = True
         TabOrder = 16
         OnClick = UnitClick_Dist
-        ExplicitTop = 240
+        ExplicitTop = 248
       end
       object Unit_e: TButton
         Left = 1
-        Top = 241
+        Top = 249
         Width = 73
         Height = 16
         Align = alBottom
@@ -725,11 +750,12 @@ object VecForm: TVecForm
         ParentShowHint = False
         ShowHint = True
         TabOrder = 15
-        ExplicitTop = 224
+        ExplicitTop = 232
       end
       object Unit_True: TButton
+        Tag = 1
         Left = 1
-        Top = 209
+        Top = 217
         Width = 73
         Height = 16
         Align = alBottom
@@ -738,11 +764,12 @@ object VecForm: TVecForm
         ShowHint = True
         TabOrder = 13
         OnClick = UnitClick_Angle
-        ExplicitTop = 192
+        ExplicitTop = 200
       end
       object Unit_Mean: TButton
+        Tag = 1
         Left = 1
-        Top = 225
+        Top = 233
         Width = 73
         Height = 16
         Align = alBottom
@@ -751,7 +778,7 @@ object VecForm: TVecForm
         ShowHint = True
         TabOrder = 14
         OnClick = UnitClick_Angle
-        ExplicitTop = 208
+        ExplicitTop = 216
       end
       object Panel4: TPanel
         Left = 1
@@ -894,12 +921,24 @@ object VecForm: TVecForm
         ShowHint = True
         TabOrder = 10
       end
+      object Unit_BC: TButton
+        Left = 1
+        Top = 205
+        Width = 73
+        Height = 16
+        Hint = 'Ballistic coeefficient'
+        Align = alTop
+        Caption = 'kg/m'#178
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 25
+      end
     end
     object Panel_IValues: TPanel
       Left = 78
       Top = 0
       Width = 138
-      Height = 386
+      Height = 394
       Margins.Bottom = 0
       Align = alClient
       Alignment = taLeftJustify
@@ -912,7 +951,7 @@ object VecForm: TVecForm
       ParentFont = False
       TabOrder = 1
       ExplicitWidth = 132
-      ExplicitHeight = 369
+      ExplicitHeight = 377
       object Panel_Value_Header: TPanel
         Left = 0
         Top = 0
@@ -934,7 +973,7 @@ object VecForm: TVecForm
       end
       object Value_e: TEdit
         Left = 0
-        Top = 242
+        Top = 250
         Width = 138
         Height = 16
         Hint = 'Eccentricity'
@@ -947,12 +986,12 @@ object VecForm: TVecForm
         ShowHint = True
         TabOrder = 14
         OnKeyPress = NumericOnlyKeyPress
-        ExplicitTop = 225
+        ExplicitTop = 233
         ExplicitWidth = 132
       end
       object Value_q: TEdit
         Left = 0
-        Top = 258
+        Top = 266
         Width = 138
         Height = 16
         Hint = 'Periapsis distance'
@@ -965,12 +1004,12 @@ object VecForm: TVecForm
         ShowHint = True
         TabOrder = 15
         OnKeyPress = NumericOnlyKeyPress
-        ExplicitTop = 241
+        ExplicitTop = 249
         ExplicitWidth = 132
       end
       object Value_Peri: TEdit
         Left = 0
-        Top = 290
+        Top = 298
         Width = 138
         Height = 16
         Hint = 'Argument of periapsis'
@@ -983,12 +1022,12 @@ object VecForm: TVecForm
         ShowHint = True
         TabOrder = 16
         OnKeyPress = NumericOnlyKeyPress
-        ExplicitTop = 273
+        ExplicitTop = 281
         ExplicitWidth = 132
       end
       object Value_Node: TEdit
         Left = 0
-        Top = 306
+        Top = 314
         Width = 138
         Height = 16
         Hint = 'Argument of ascending node'
@@ -1001,12 +1040,12 @@ object VecForm: TVecForm
         ShowHint = True
         TabOrder = 17
         OnKeyPress = NumericOnlyKeyPress
-        ExplicitTop = 289
+        ExplicitTop = 297
         ExplicitWidth = 132
       end
       object Value_Incl: TEdit
         Left = 0
-        Top = 322
+        Top = 330
         Width = 138
         Height = 16
         Hint = 'Inclination'
@@ -1019,12 +1058,12 @@ object VecForm: TVecForm
         ShowHint = True
         TabOrder = 18
         OnKeyPress = NumericOnlyKeyPress
-        ExplicitTop = 305
+        ExplicitTop = 313
         ExplicitWidth = 132
       end
       object Value_TPP: TEdit
         Left = 0
-        Top = 338
+        Top = 346
         Width = 138
         Height = 16
         Hint = 'Time of periapsis passage (TDB)'
@@ -1036,12 +1075,12 @@ object VecForm: TVecForm
         ParentShowHint = False
         ShowHint = True
         TabOrder = 19
-        ExplicitTop = 321
+        ExplicitTop = 329
         ExplicitWidth = 132
       end
       object Value_a: TEdit
         Left = 0
-        Top = 274
+        Top = 282
         Width = 138
         Height = 16
         Hint = 'Semi-major axis'
@@ -1054,12 +1093,12 @@ object VecForm: TVecForm
         ShowHint = True
         TabOrder = 20
         OnKeyPress = NumericOnlyKeyPress
-        ExplicitTop = 257
+        ExplicitTop = 265
         ExplicitWidth = 132
       end
       object Value_n: TEdit
         Left = 0
-        Top = 354
+        Top = 362
         Width = 138
         Height = 16
         Hint = 'Mean motion'
@@ -1072,12 +1111,12 @@ object VecForm: TVecForm
         ShowHint = True
         TabOrder = 21
         OnKeyPress = NumericOnlyKeyPress
-        ExplicitTop = 337
+        ExplicitTop = 345
         ExplicitWidth = 132
       end
       object Value_Period: TEdit
         Left = 0
-        Top = 370
+        Top = 378
         Width = 138
         Height = 16
         Hint = 'Orbital period'
@@ -1090,7 +1129,7 @@ object VecForm: TVecForm
         ShowHint = True
         TabOrder = 22
         OnKeyPress = NumericOnlyKeyPress
-        ExplicitTop = 353
+        ExplicitTop = 361
         ExplicitWidth = 132
       end
       object Value_Epoch: TEdit
@@ -1113,7 +1152,7 @@ object VecForm: TVecForm
       end
       object Value_True: TEdit
         Left = 0
-        Top = 210
+        Top = 218
         Width = 138
         Height = 16
         Hint = 'True anomaly'
@@ -1126,12 +1165,12 @@ object VecForm: TVecForm
         ShowHint = True
         TabOrder = 23
         OnKeyPress = NumericOnlyKeyPress
-        ExplicitTop = 193
+        ExplicitTop = 201
         ExplicitWidth = 132
       end
       object Value_Mean: TEdit
         Left = 0
-        Top = 226
+        Top = 234
         Width = 138
         Height = 16
         Hint = 'Mean anomaly'
@@ -1144,7 +1183,7 @@ object VecForm: TVecForm
         ShowHint = True
         TabOrder = 24
         OnKeyPress = NumericOnlyKeyPress
-        ExplicitTop = 209
+        ExplicitTop = 217
         ExplicitWidth = 132
       end
       object Panel2: TPanel
@@ -1338,6 +1377,24 @@ object VecForm: TVecForm
         OnKeyPress = NumericOnlyKeyPress
         ExplicitWidth = 132
       end
+      object Value_BC: TEdit
+        Tag = 6
+        Left = 0
+        Top = 204
+        Width = 138
+        Height = 16
+        Hint = 'Ballistic coefficient'
+        Align = alTop
+        BevelEdges = []
+        BevelInner = bvNone
+        BevelOuter = bvNone
+        BorderStyle = bsNone
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 25
+        OnKeyPress = NumericOnlyKeyPress
+        ExplicitWidth = 132
+      end
     end
   end
   object TargetEdit: TButtonedEdit
@@ -1376,30 +1433,30 @@ object VecForm: TVecForm
   end
   object CompBtn: TButton
     Left = 0
-    Top = 455
+    Top = 459
     Width = 294
     Height = 25
     Align = alBottom
     Caption = 'Compute output state:'
     TabOrder = 4
     OnClick = CompBtnClick_Geometric
-    ExplicitTop = 438
+    ExplicitTop = 442
     ExplicitWidth = 288
   end
   object Panel_Output: TPanel
     Left = 0
-    Top = 480
+    Top = 484
     Width = 294
-    Height = 235
+    Height = 252
     Align = alBottom
     BevelOuter = bvNone
     TabOrder = 5
-    ExplicitTop = 463
+    ExplicitTop = 467
     ExplicitWidth = 288
     object Splitter3: TSplitter
       Left = 75
       Top = 0
-      Height = 235
+      Height = 252
       ExplicitLeft = 120
       ExplicitTop = 112
       ExplicitHeight = 100
@@ -1407,7 +1464,7 @@ object VecForm: TVecForm
     object Splitter4: TSplitter
       Left = 216
       Top = 0
-      Height = 235
+      Height = 252
       Align = alRight
       ExplicitLeft = 160
       ExplicitTop = 152
@@ -1417,7 +1474,7 @@ object VecForm: TVecForm
       Left = 0
       Top = 0
       Width = 75
-      Height = 235
+      Height = 252
       Align = alLeft
       Constraints.MaxWidth = 100
       Constraints.MinWidth = 50
@@ -1435,12 +1492,12 @@ object VecForm: TVecForm
         Height = 20
         Align = alTop
         Caption = 'Element:'
-        TabOrder = 10
+        TabOrder = 0
       end
       object Name_SVY: TPanel
         AlignWithMargins = True
         Left = 1
-        Top = 146
+        Top = 147
         Width = 65
         Height = 16
         Hint = 'Velocity vector Y'
@@ -1455,12 +1512,12 @@ object VecForm: TVecForm
         Padding.Right = 8
         ParentShowHint = False
         ShowHint = True
-        TabOrder = 8
+        TabOrder = 9
       end
       object Name_SVX: TPanel
         AlignWithMargins = True
         Left = 1
-        Top = 130
+        Top = 131
         Width = 65
         Height = 16
         Hint = 'Velocity vector X'
@@ -1475,12 +1532,12 @@ object VecForm: TVecForm
         Padding.Right = 8
         ParentShowHint = False
         ShowHint = True
-        TabOrder = 7
+        TabOrder = 8
       end
       object Name_SRZ: TPanel
         AlignWithMargins = True
         Left = 1
-        Top = 106
+        Top = 107
         Width = 65
         Height = 16
         Hint = 'Position vector Z'
@@ -1495,12 +1552,12 @@ object VecForm: TVecForm
         Padding.Right = 8
         ParentShowHint = False
         ShowHint = True
-        TabOrder = 5
+        TabOrder = 6
       end
       object Name_SRY: TPanel
         AlignWithMargins = True
         Left = 1
-        Top = 90
+        Top = 91
         Width = 65
         Height = 16
         Hint = 'Position vector Y'
@@ -1515,12 +1572,12 @@ object VecForm: TVecForm
         Padding.Right = 8
         ParentShowHint = False
         ShowHint = True
-        TabOrder = 4
+        TabOrder = 5
       end
       object Name_SRX: TPanel
         AlignWithMargins = True
         Left = 1
-        Top = 74
+        Top = 75
         Width = 65
         Height = 16
         Hint = 'Position vector X'
@@ -1535,12 +1592,12 @@ object VecForm: TVecForm
         Padding.Right = 8
         ParentShowHint = False
         ShowHint = True
-        TabOrder = 3
+        TabOrder = 4
       end
       object Name_SVZ: TPanel
         AlignWithMargins = True
         Left = 1
-        Top = 162
+        Top = 163
         Width = 65
         Height = 16
         Hint = 'Velocity vector Z'
@@ -1555,16 +1612,16 @@ object VecForm: TVecForm
         Padding.Right = 8
         ParentShowHint = False
         ShowHint = True
-        TabOrder = 9
+        TabOrder = 10
       end
       object Panel5: TPanel
         Left = 1
-        Top = 178
+        Top = 179
         Width = 73
         Height = 8
         Align = alBottom
         BevelOuter = bvNone
-        TabOrder = 6
+        TabOrder = 11
       end
       object Name_SEpoch: TPanel
         AlignWithMargins = True
@@ -1584,7 +1641,7 @@ object VecForm: TVecForm
         Padding.Right = 8
         ParentShowHint = False
         ShowHint = True
-        TabOrder = 0
+        TabOrder = 1
       end
       object Name_SCenter: TPanel
         AlignWithMargins = True
@@ -1604,7 +1661,7 @@ object VecForm: TVecForm
         Padding.Right = 8
         ParentShowHint = False
         ShowHint = True
-        TabOrder = 1
+        TabOrder = 2
       end
       object Name_SFrame: TPanel
         AlignWithMargins = True
@@ -1624,12 +1681,12 @@ object VecForm: TVecForm
         Padding.Right = 8
         ParentShowHint = False
         ShowHint = True
-        TabOrder = 2
+        TabOrder = 3
       end
       object Name_SA1: TPanel
         AlignWithMargins = True
         Left = 1
-        Top = 186
+        Top = 187
         Width = 65
         Height = 16
         Hint = 'JPL/SBDB small-body nongravitational parameter A1 (radial)'
@@ -1644,12 +1701,12 @@ object VecForm: TVecForm
         Padding.Right = 8
         ParentShowHint = False
         ShowHint = True
-        TabOrder = 11
+        TabOrder = 12
       end
       object Name_SA2: TPanel
         AlignWithMargins = True
         Left = 1
-        Top = 202
+        Top = 203
         Width = 65
         Height = 16
         Hint = 'JPL/SBDB small-body nongravitational parameter A2 (transverse)'
@@ -1664,12 +1721,12 @@ object VecForm: TVecForm
         Padding.Right = 8
         ParentShowHint = False
         ShowHint = True
-        TabOrder = 12
+        TabOrder = 13
       end
       object Name_SA3: TPanel
         AlignWithMargins = True
         Left = 1
-        Top = 218
+        Top = 219
         Width = 65
         Height = 16
         Hint = 'JPL/SBDB small-body nongravitational parameter A3 (normal)'
@@ -1684,23 +1741,43 @@ object VecForm: TVecForm
         Padding.Right = 8
         ParentShowHint = False
         ShowHint = True
-        TabOrder = 13
+        TabOrder = 14
       end
       object Panel17: TPanel
         Left = 1
-        Top = 122
+        Top = 123
         Width = 73
         Height = 8
         Align = alBottom
         BevelOuter = bvNone
-        TabOrder = 14
+        TabOrder = 7
+      end
+      object Name_SBC: TPanel
+        AlignWithMargins = True
+        Left = 1
+        Top = 235
+        Width = 65
+        Height = 16
+        Hint = 'Inverse of the ballistic coefficient'
+        Margins.Left = 0
+        Margins.Top = 0
+        Margins.Right = 8
+        Margins.Bottom = 0
+        Align = alBottom
+        Alignment = taRightJustify
+        BevelOuter = bvNone
+        Caption = '1/BC'
+        Padding.Right = 8
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 15
       end
     end
     object Panel_OUnits: TPanel
       Left = 219
       Top = 0
       Width = 75
-      Height = 235
+      Height = 252
       Align = alRight
       Constraints.MaxWidth = 100
       Constraints.MinWidth = 50
@@ -1719,11 +1796,23 @@ object VecForm: TVecForm
         Height = 20
         Align = alTop
         Caption = 'Unit:'
-        TabOrder = 10
+        TabOrder = 0
       end
       object Unit_SVZ: TButton
         Left = 1
-        Top = 162
+        Top = 163
+        Width = 73
+        Height = 16
+        Align = alBottom
+        Caption = 'AU/day'
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 10
+        OnClick = UnitClick_Speed
+      end
+      object Unit_SVY: TButton
+        Left = 1
+        Top = 147
         Width = 73
         Height = 16
         Align = alBottom
@@ -1733,9 +1822,9 @@ object VecForm: TVecForm
         TabOrder = 9
         OnClick = UnitClick_Speed
       end
-      object Unit_SVY: TButton
+      object Unit_SVX: TButton
         Left = 1
-        Top = 146
+        Top = 131
         Width = 73
         Height = 16
         Align = alBottom
@@ -1745,22 +1834,23 @@ object VecForm: TVecForm
         TabOrder = 8
         OnClick = UnitClick_Speed
       end
-      object Unit_SVX: TButton
-        Left = 1
-        Top = 130
-        Width = 73
-        Height = 16
-        Align = alBottom
-        Caption = 'AU/day'
-        ParentShowHint = False
-        ShowHint = True
-        TabOrder = 7
-        OnClick = UnitClick_Speed
-      end
       object Unit_SRZ: TButton
         Tag = 1
         Left = 1
-        Top = 106
+        Top = 107
+        Width = 73
+        Height = 16
+        Align = alBottom
+        Caption = 'AU'
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 6
+        OnClick = UnitClick_Dist
+      end
+      object Unit_SRY: TButton
+        Tag = 1
+        Left = 1
+        Top = 91
         Width = 73
         Height = 16
         Align = alBottom
@@ -1770,10 +1860,10 @@ object VecForm: TVecForm
         TabOrder = 5
         OnClick = UnitClick_Dist
       end
-      object Unit_SRY: TButton
+      object Unit_SRX: TButton
         Tag = 1
         Left = 1
-        Top = 90
+        Top = 75
         Width = 73
         Height = 16
         Align = alBottom
@@ -1783,27 +1873,14 @@ object VecForm: TVecForm
         TabOrder = 4
         OnClick = UnitClick_Dist
       end
-      object Unit_SRX: TButton
-        Tag = 1
-        Left = 1
-        Top = 74
-        Width = 73
-        Height = 16
-        Align = alBottom
-        Caption = 'AU'
-        ParentShowHint = False
-        ShowHint = True
-        TabOrder = 3
-        OnClick = UnitClick_Dist
-      end
       object Panel8: TPanel
         Left = 1
-        Top = 122
+        Top = 123
         Width = 73
         Height = 8
         Align = alBottom
         BevelOuter = bvNone
-        TabOrder = 6
+        TabOrder = 7
       end
       object Unit_SEpoch: TButton
         Left = 1
@@ -1814,7 +1891,7 @@ object VecForm: TVecForm
         Caption = 'Gregorian'
         ParentShowHint = False
         ShowHint = True
-        TabOrder = 0
+        TabOrder = 1
         OnClick = UnitClick_Epoch
       end
       object Unit_SCenter: TButton
@@ -1826,7 +1903,7 @@ object VecForm: TVecForm
         Enabled = False
         ParentShowHint = False
         ShowHint = True
-        TabOrder = 1
+        TabOrder = 2
       end
       object Unit_SFrame: TButton
         Left = 1
@@ -1837,11 +1914,11 @@ object VecForm: TVecForm
         Enabled = False
         ParentShowHint = False
         ShowHint = True
-        TabOrder = 2
+        TabOrder = 3
       end
       object Panel12: TPanel
         Left = 1
-        Top = 178
+        Top = 179
         Width = 73
         Height = 8
         Align = alBottom
@@ -1851,7 +1928,7 @@ object VecForm: TVecForm
       object Unit_SA1: TButton
         Tag = 1
         Left = 1
-        Top = 186
+        Top = 187
         Width = 73
         Height = 16
         Align = alBottom
@@ -1863,7 +1940,7 @@ object VecForm: TVecForm
       object Unit_SA2: TButton
         Tag = 1
         Left = 1
-        Top = 202
+        Top = 203
         Width = 73
         Height = 16
         Align = alBottom
@@ -1875,7 +1952,7 @@ object VecForm: TVecForm
       object Unit_SA3: TButton
         Tag = 1
         Left = 1
-        Top = 218
+        Top = 219
         Width = 73
         Height = 16
         Align = alBottom
@@ -1884,12 +1961,24 @@ object VecForm: TVecForm
         ShowHint = True
         TabOrder = 14
       end
+      object Unit_SBC: TButton
+        Left = 1
+        Top = 235
+        Width = 73
+        Height = 16
+        Hint = 'Square kilometer(s) per kilogram'
+        Align = alBottom
+        Caption = 'km'#178'/kg'
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 15
+      end
     end
     object Panel_OValues: TPanel
       Left = 78
       Top = 0
       Width = 138
-      Height = 235
+      Height = 252
       Margins.Bottom = 0
       Align = alClient
       Alignment = taLeftJustify
@@ -1918,23 +2007,23 @@ object VecForm: TVecForm
         ParentFont = False
         ParentShowHint = False
         ShowHint = True
-        TabOrder = 10
+        TabOrder = 0
         ExplicitWidth = 132
       end
       object Panel6: TPanel
         Left = 0
-        Top = 123
+        Top = 124
         Width = 138
         Height = 8
         Align = alBottom
         BevelOuter = bvNone
-        TabOrder = 6
+        TabOrder = 7
         ExplicitWidth = 132
       end
       object Value_SVZ: TPanel
         AlignWithMargins = True
         Left = 8
-        Top = 163
+        Top = 164
         Width = 130
         Height = 16
         Hint = 'Position vector X'
@@ -1949,34 +2038,13 @@ object VecForm: TVecForm
         Padding.Right = 8
         ParentShowHint = False
         ShowHint = True
-        TabOrder = 9
+        TabOrder = 10
         ExplicitWidth = 124
       end
       object Value_SRX: TPanel
         AlignWithMargins = True
         Left = 8
-        Top = 75
-        Width = 130
-        Height = 16
-        Hint = 'Position vector X'
-        Margins.Left = 8
-        Margins.Top = 0
-        Margins.Right = 0
-        Margins.Bottom = 0
-        Align = alBottom
-        Alignment = taLeftJustify
-        BevelOuter = bvNone
-        Caption = 'N/A'
-        Padding.Right = 8
-        ParentShowHint = False
-        ShowHint = True
-        TabOrder = 3
-        ExplicitWidth = 124
-      end
-      object Value_SRY: TPanel
-        AlignWithMargins = True
-        Left = 8
-        Top = 91
+        Top = 76
         Width = 130
         Height = 16
         Hint = 'Position vector X'
@@ -1994,10 +2062,10 @@ object VecForm: TVecForm
         TabOrder = 4
         ExplicitWidth = 124
       end
-      object Value_SRZ: TPanel
+      object Value_SRY: TPanel
         AlignWithMargins = True
         Left = 8
-        Top = 107
+        Top = 92
         Width = 130
         Height = 16
         Hint = 'Position vector X'
@@ -2015,10 +2083,10 @@ object VecForm: TVecForm
         TabOrder = 5
         ExplicitWidth = 124
       end
-      object Value_SVX: TPanel
+      object Value_SRZ: TPanel
         AlignWithMargins = True
         Left = 8
-        Top = 131
+        Top = 108
         Width = 130
         Height = 16
         Hint = 'Position vector X'
@@ -2033,13 +2101,13 @@ object VecForm: TVecForm
         Padding.Right = 8
         ParentShowHint = False
         ShowHint = True
-        TabOrder = 7
+        TabOrder = 6
         ExplicitWidth = 124
       end
-      object Value_SVY: TPanel
+      object Value_SVX: TPanel
         AlignWithMargins = True
         Left = 8
-        Top = 147
+        Top = 132
         Width = 130
         Height = 16
         Hint = 'Position vector X'
@@ -2055,6 +2123,27 @@ object VecForm: TVecForm
         ParentShowHint = False
         ShowHint = True
         TabOrder = 8
+        ExplicitWidth = 124
+      end
+      object Value_SVY: TPanel
+        AlignWithMargins = True
+        Left = 8
+        Top = 148
+        Width = 130
+        Height = 16
+        Hint = 'Position vector X'
+        Margins.Left = 8
+        Margins.Top = 0
+        Margins.Right = 0
+        Margins.Bottom = 0
+        Align = alBottom
+        Alignment = taLeftJustify
+        BevelOuter = bvNone
+        Caption = 'N/A'
+        Padding.Right = 8
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 9
         ExplicitWidth = 124
       end
       object Value_SEpoch: TPanel
@@ -2075,7 +2164,7 @@ object VecForm: TVecForm
         Padding.Right = 8
         ParentShowHint = False
         ShowHint = True
-        TabOrder = 0
+        TabOrder = 1
         ExplicitWidth = 124
       end
       object Value_SCenter: TPanel
@@ -2096,7 +2185,7 @@ object VecForm: TVecForm
         Padding.Right = 8
         ParentShowHint = False
         ShowHint = True
-        TabOrder = 1
+        TabOrder = 2
         ExplicitWidth = 124
       end
       object Value_SFrame: TPanel
@@ -2117,12 +2206,12 @@ object VecForm: TVecForm
         Padding.Right = 8
         ParentShowHint = False
         ShowHint = True
-        TabOrder = 2
+        TabOrder = 3
         ExplicitWidth = 124
       end
       object Panel11: TPanel
         Left = 0
-        Top = 179
+        Top = 180
         Width = 138
         Height = 8
         Align = alBottom
@@ -2133,7 +2222,7 @@ object VecForm: TVecForm
       object Value_SA1: TPanel
         AlignWithMargins = True
         Left = 8
-        Top = 187
+        Top = 188
         Width = 130
         Height = 16
         Hint = 'JPL/SBDB small-body nongravitational parameter A1 (radial)'
@@ -2154,7 +2243,7 @@ object VecForm: TVecForm
       object Value_SA3: TPanel
         AlignWithMargins = True
         Left = 8
-        Top = 219
+        Top = 220
         Width = 130
         Height = 16
         Hint = 'JPL/SBDB small-body nongravitational parameter A3 (normal)'
@@ -2169,13 +2258,13 @@ object VecForm: TVecForm
         Padding.Right = 8
         ParentShowHint = False
         ShowHint = True
-        TabOrder = 13
+        TabOrder = 14
         ExplicitWidth = 124
       end
       object Value_SA2: TPanel
         AlignWithMargins = True
         Left = 8
-        Top = 203
+        Top = 204
         Width = 130
         Height = 16
         Hint = 'JPL/SBDB small-body nongravitational parameter A2 (transverse)'
@@ -2190,14 +2279,35 @@ object VecForm: TVecForm
         Padding.Right = 8
         ParentShowHint = False
         ShowHint = True
-        TabOrder = 14
+        TabOrder = 13
+        ExplicitWidth = 124
+      end
+      object Value_SBC: TPanel
+        AlignWithMargins = True
+        Left = 8
+        Top = 236
+        Width = 130
+        Height = 16
+        Hint = 'Inverse of the ballistic coefficient'
+        Margins.Left = 8
+        Margins.Top = 0
+        Margins.Right = 0
+        Margins.Bottom = 0
+        Align = alBottom
+        Alignment = taLeftJustify
+        BevelOuter = bvNone
+        Caption = 'N/A'
+        Padding.Right = 8
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 15
         ExplicitWidth = 124
       end
     end
   end
   object StartBtn: TButton
     Left = 0
-    Top = 715
+    Top = 736
     Width = 294
     Height = 25
     Align = alBottom
@@ -2205,7 +2315,7 @@ object VecForm: TVecForm
     Enabled = False
     TabOrder = 6
     OnClick = StartBtnClick
-    ExplicitTop = 698
+    ExplicitTop = 719
     ExplicitWidth = 288
   end
   object ImageList: TImageList

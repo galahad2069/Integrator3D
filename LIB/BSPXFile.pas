@@ -45,10 +45,12 @@ type
   // (giant-planet Req/J/pole) and Horizons text (asteroid Req). See memory bspx-const-section-sources.
   TBSPXBodyConst = packed record    // fixed 256 bytes (32 doubles), matching the TBSPXDesc stride; the
    case Integer of                  // reserved tail leaves room to add per-body constants without a format break
-    0: (GM, Req, J2, J3, J4: Double;                     // per-body: GM (km^3/s^2), equatorial radius (km), zonal harmonics
+    0: (GM, Req, J2, J3, J4: Double;                     // per-body: GM (km^3/s^2), equatorial radius (km) = triaxial a, zonal harmonics
         PoleRA, PoleDec, PoleW: Double;                  // IAU pole RA/Dec + prime meridian W at POLTIM (deg)
-        PoleRARate, PoleDecRate, PoleWRate: Double;      // rates: RA/Dec deg/century, W deg/DAY (SPICE PCK convention) -- 11 doubles used
-        ReservedBody: array[0..20] of Double);           // reserved -> 32 doubles total = 256 bytes
+        PoleRARate, PoleDecRate, PoleWRate: Double;      // rates: RA/Dec deg/century, W deg/DAY (SPICE PCK convention)
+        Rb, Rc: Double;                                  // triaxial radii RADII[1]=b, RADII[2]=c(polar), km (0 = spherical: use Req)
+        AtmRho0, AtmAlt0, AtmScaleH: Double;             // exponential-atmosphere drag: rho(h)=AtmRho0*exp(-(h-AtmAlt0)/H); AtmRho0 kg/m^3, AtmAlt0/H km; 0 = no atmosphere -- 16 doubles used
+        ReservedBody: array[0..15] of Double);           // reserved -> 32 doubles total = 256 bytes
     1: (AU, CLIGHT, BETA, GAMMA, GMS, POLTIM: Double;    // final record only: SS-wide constants (same 256-byte slot)
         ReservedGen: array[0..25] of Double);            // reserved -> 32 doubles total = 256 bytes
   end;
@@ -110,6 +112,7 @@ type
     procedure SetPerturberStateCenterID(Value: Int64);
     procedure NormaliseFramesToICRF;      // rotate any ECLIPJ2000 body's coefficients to the equatorial frame in RAM; called once, by Open, so everything downstream sees one frame
     procedure ComputeApproxSystemRadii;   // fill FApproxSystemRadii from the header GMs + the SSB->BC distances at the file's mid-epoch; called once, at the end of a successful Open
+    procedure ComputeSSBGM;               // recompute BodyConstants[0]/Hdr.GM[0] as GM(Sun)+barycentres(1..9)+asteroids/TNOs, once, after Init's reconciliation (so file-added/overridden bodies count)
   public
     constructor Create;
     destructor Destroy; override;
@@ -358,12 +361,29 @@ begin
           FCnst[i].Req:=BodyConstants[k].Req; FCnst[i].PoleRA:=BodyConstants[k].PoleRA; FCnst[i].PoleDec:=BodyConstants[k].PoleDec;
           FCnst[i].PoleW:=BodyConstants[k].PoleW; FCnst[i].PoleRARate:=BodyConstants[k].PoleRARate; FCnst[i].PoleDecRate:=BodyConstants[k].PoleDecRate; FCnst[i].PoleWRate:=BodyConstants[k].PoleWRate;
          end;
+       // triaxial shape (Rb/Rc, for ellipsoid rendering): same rule as GM/figure -- a file that carries valid radii
+       // wins and is written back; a hole (both 0) is filled from the table. Keyed on Rb/Rc, not J2, since a body
+       // can be triaxial with no zonal harmonics (most irregular moons). Req(=a) is handled with the figure above.
+       if i<Length(FCnst) then
+        if (FCnst[i].Rb<>0.0) or (FCnst[i].Rc<>0.0) then
+         begin BodyConstants[k].Rb:=FCnst[i].Rb; BodyConstants[k].Rc:=FCnst[i].Rc; end
+        else
+         begin FCnst[i].Rb:=BodyConstants[k].Rb; FCnst[i].Rc:=BodyConstants[k].Rc; end;
+       // atmosphere (drag) params: same rule -- a file that carries a model wins and writes back; a hole (Rho0=0)
+       // is filled from the table. SPICE has no atmosphere data, so in practice this always fills from the table
+       // (the sole source), but keeping the file-wins branch lets a Phase-built file stay self-describing.
+       if i<Length(FCnst) then
+        if FCnst[i].AtmRho0<>0.0 then
+         begin BodyConstants[k].AtmRho0:=FCnst[i].AtmRho0; BodyConstants[k].AtmAlt0:=FCnst[i].AtmAlt0; BodyConstants[k].AtmScaleH:=FCnst[i].AtmScaleH; end
+        else
+         begin FCnst[i].AtmRho0:=BodyConstants[k].AtmRho0; FCnst[i].AtmAlt0:=BodyConstants[k].AtmAlt0; FCnst[i].AtmScaleH:=BodyConstants[k].AtmScaleH; end;
       end;
     end;
    // Any invalid header GM (codes 0..10) falls back to the (now reconciled) default -> Hdr.GM[code] reads are safe.
    for i:=Low(FHdr.GM) to High(FHdr.GM) do
     if not ValidGM(FHdr.GM[i]) then
      begin k:=BodyConstIndex(i); if k>=0 then FHdr.GM[i]:=BodyConstants[k].GM; end;
+   ComputeSSBGM;   // SSB-GM = sum of the actual masses, now that the table + Hdr.GM[1..10] are fully reconciled (overrides the file's stored/seed SSB)
    // Mirror the reconciled GM back into the per-body const records so Desc.GM and Cnst.GM always agree
    // (index DescCount is the SS-wide trailer, left untouched).
    for i:=0 to Length(FDesc)-1 do
@@ -539,6 +559,34 @@ begin
      end;
     FDesc[i].RefID:=SPICE_J2000;   // in RAM the data genuinely IS J2000 now
    end;
+end;
+
+procedure TBSPXFile.ComputeSSBGM;
+// Recompute the Solar System barycentre GM -- BodyConstants[0] and Hdr.GM[0] -- as the sum of the actual masses,
+// run AFTER Init's reconciliation so it reflects any body the file added or any GM it overrode. Matches the
+// table's own definition (see the Add(0,...) comment): GM(Sun 10) + the 9 planetary-system barycentres (codes
+// 1..9, each canonical DE440 and already covering its planet + satellites) + every asteroid/TNO. Planets and
+// satellites are deliberately NOT summed -- their mass is already inside their barycentre. Asteroids are dual-
+// coded (2000000+N and 20000000+N); the file (BSPMerge) uses the 20000000+N form and reconciliation applies any
+// GM override there, so that form is summed and the 2000000+N twin skipped -- but a body present ONLY in the old
+// form (no twin) is still counted, so nothing is missed.
+var i, code: Int64; ssb: Double;
+begin
+  ssb := 0.0;
+  for code := 1 to 10 do   // Sun (10) + planetary-system barycentres (1..9)
+   begin i := BodyConstIndex(code); if i >= 0 then ssb := ssb + BodyConstants[i].GM; end;
+  for i := 0 to High(BodyConstants) do
+   begin
+    code := BodyConstants[i].NAIFCode;
+    if (code >= 20000001) and (code <= 29999999) then
+     ssb := ssb + BodyConstants[i].GM                                   // asteroid/TNO in the file's 20000000+N form
+    else if (code >= 2000001) and (code <= 2999999) then
+     if BodyConstIndex(20000000 + (code - 2000000)) < 0 then            // old 2000000+N form: count only if it has no 20000000+N twin
+      ssb := ssb + BodyConstants[i].GM;
+   end;
+  i := BodyConstIndex(0);
+  if i >= 0 then BodyConstants[i].GM := ssb;
+  FHdr.GM[0] := ssb;
 end;
 
 procedure TBSPXFile.ComputeApproxSystemRadii;
@@ -1389,9 +1437,9 @@ begin
 end;
 
 procedure SeedBodyConst(BodyID: Int64; out C: TBSPXBodyConst);
-// Seed a per-body const record from the shared default table (CelestialMechanics.BodyConstants): GM +
-// figure (Req/J2/J3/J4/pole RA/Dec), the exact fields the table holds. Everything else (PoleW, rates,
-// reserved) stays 0. Bodies unknown to the table leave C fully zeroed. Replaces the former DE440BodyDefault
+// Seed a per-body const record from the shared default table (CelestialMechanics.BodyConstants): GM + figure
+// (Req/Rb/Rc/J2/J3/J4/pole RA/Dec) + atmosphere (Rho0/Alt0/ScaleH), the exact fields the table holds. Everything
+// else (reserved) stays 0. Bodies unknown to the table leave C fully zeroed. Replaces the former DE440BodyDefault
 // hardcoded GM table -- GM and figure now live in exactly one place (BodyConstants).
 var bc: PBodyConstant;
 begin
@@ -1399,10 +1447,11 @@ begin
   bc := BodyConst(BodyID);
   if bc<>nil then
    begin
-    C.GM:=bc.GM; C.Req:=bc.Req;
+    C.GM:=bc.GM; C.Req:=bc.Req; C.Rb:=bc.Rb; C.Rc:=bc.Rc;
     C.J2:=bc.J2; C.J3:=bc.J3; C.J4:=bc.J4;
     C.PoleRA:=bc.PoleRA; C.PoleDec:=bc.PoleDec; C.PoleW:=bc.PoleW;
     C.PoleRARate:=bc.PoleRARate; C.PoleDecRate:=bc.PoleDecRate; C.PoleWRate:=bc.PoleWRate;
+    C.AtmRho0:=bc.AtmRho0; C.AtmAlt0:=bc.AtmAlt0; C.AtmScaleH:=bc.AtmScaleH;
    end;
 end;
 

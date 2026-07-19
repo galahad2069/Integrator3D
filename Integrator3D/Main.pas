@@ -273,6 +273,7 @@ type
     function  AxisEndpointSSB(id: Int64; out S: TState4D): Boolean;  // SSB state of a co-rotating-axis endpoint from the current frame's arrays
     procedure UpdateCoRotMatrix;                        // rebuild FCoRotMatrix from the current axis + states (once per frame, before the trail store)
     function  DispPos(const p: TVec4D): TVec4D;         // FBarycenter-relative absolute position -> co-rotated, FRotCenter-re-centred display coords (NOT for velocities/relative vectors)
+    function  TrailOrbitOfs: TVec4D;                    // display offset that lands an orbit-centre-relative trail point on the orbit centre's dot (= the conic's GravOfs); 0 when FOrbitCenter=FBarycenter
     function  IntegrandInSystem(idx: Int64): Boolean;   // whether integrand idx currently belongs to FBarycenter's system (Hill-radius test; always True in the full SSB view)
     function  IntegrandShown(idx: Int64): Boolean;      // whether integrand idx is drawn now (hides out-of-view ones while co-rotating)
     procedure CloseAllDynForms;
@@ -315,6 +316,10 @@ const
   HINTS_ANGLE:    array[0..1] of string = ('radian(s)', 'degree(s)');
   CAPS_ACC:       array[0..4] of string = ('μm/s²', 'mm/s²', 'm/s²', 'g', 'km/s²');
   HINTS_ACC:      array[0..4] of string = ('micron(s) per square second', 'millimeter(s) per square second', 'meter(s) per square second', '1 g = 9.81 meters per square second', 'kilometer(s) per square seconds');
+  CAPS_BC:        array[0..0] of string = ('kg/m²');
+  HINTS_BC:       array[0..0] of string = ('kilogram(s) per square meter');
+  CAPS_IBC:       array[0..0] of string = ('km²/kg');
+  HINTS_IBC:      array[0..0] of string = ('square kilometer(s) per kilogram');
 
 implementation
 
@@ -1252,11 +1257,14 @@ begin
    // figure term (Sun/Earth/Mars/Jupiter/Saturn/Uranus/Neptune), not just Earth/Jupiter/Saturn. Also locate
    // the Sun (TargetID 10) for GSunIdx so the nongrav term (CBprec3) is correctly centred when enabled.
    ClearGJ2;
-   SetLength(GNonGrav, 0);   // per-body Yarkovsky (array of TNonGrav); AdvanceScene sizes/populates it
+   ClearGAtmosphere;         // drag working set: one entry per body with an atmosphere (AtmRho0>0), assembled below
+   SetLength(GNonGrav, 0);   // per-body non-grav: Yarkovsky + drag (array of TNonGrav); AdvanceScene sizes/populates it
    for i := 0 to FBSPXFile.DescCount-1 do
     begin
      if FBSPXFile.Desc[i].TargetID = 10 then GSunIdx := i;
      AddGJ2(FBSPXFile.Desc[i].TargetID, i);   // entry added iff this body has a figure in GOblateness
+     with FBSPXFile.BodyConst[i]^ do           // drag entry iff this body has an atmosphere (params km-converted inside)
+      AddGAtmosphere(i, Req, AtmRho0, AtmAlt0, AtmScaleH, PoleRA, PoleDec, PoleWRate);
     end;
    GJ2Active := True;
    SetLength(FSpeeds, PMBarycenter.Count);
@@ -1684,23 +1692,26 @@ begin
 end;
 
 function TMainForm.DrawBodySphere(i: Int64; const Pt: TVec4D): Boolean;
-// If body i qualifies -- PMBodies on, has a loaded texture (implies Req>0), and is big enough on screen --
-// draw it as a textured sphere oriented to its spin axis and return True; else return False so the caller
-// draws a dot. Centred at Pt (display-frame AU, the would-be dot). Oblateness is ignored; the axis is the
-// IAU pole (RA/Dec, plus W/rates if present) at epoch FT, carried into the display frame like every vertex.
+// If body i qualifies -- PMBodies on, has a radius (Req>0), and is big enough on screen -- draw it as a sphere
+// oriented to its spin axis and return True; else return False so the caller draws a dot. A body with a loaded
+// texture is textured; one without is drawn as a flat grey sphere, which the lighting still shades into a 3D
+// form -- so every body with a size shows up, not just the textured ones. Centred at Pt (display-frame AU, the
+// would-be dot). Shape is a triaxial ellipsoid where the body has Rb/Rc radii (squashed along its own b and pole
+// axes), else a plain sphere; the axis is the IAU pole (RA/Dec, plus W/rates if present) at epoch FT, carried
+// into the display frame like every vertex.
 var
   pc: PBSPXBodyConst;
   rAU, dEye, projPx, dDay, T, raR, decR, cw, sw: Double;
   NP, Nd, Zd, Xd, Yd, Tn: TVec4D;
   M: array[0..15] of GLdouble;
-  lit: Boolean;
+  lit, hasTex, triax: Boolean;
 begin
   Result := False;
   if not PMBodies.Checked then Exit;
-  if (i < 0) or (i >= FBSPXFile.DescCount) or (i >= Length(FBodyTextures)) then Exit;   // BSPX bodies only, never integrands
-  if FBodyTextures[i] = 0 then Exit;
+  if (i < 0) or (i >= FBSPXFile.DescCount) then Exit;   // BSPX bodies only, never integrands
   pc  := FBSPXFile.BodyConst[i];
-  if pc.Req <= 0.0 then Exit;
+  if pc.Req <= 0.0 then Exit;   // no radius -> caller draws a dot (asteroids/KBOs: GM-only, no shape)
+  hasTex := (i < Length(FBodyTextures)) and (FBodyTextures[i] <> 0);
   rAU := pc.Req * KM2AU;
   dEye := Sqrt(Sqr(FEyePos.X - Pt.X) + Sqr(FEyePos.Y - Pt.Y) + Sqr(FEyePos.Z - Pt.Z));   // true eye->body distance (AU)
   if dEye <= 0.0 then Exit;
@@ -1725,17 +1736,32 @@ begin
   M[8]:=Zd.X; M[9]:=Zd.Y; M[10]:=Zd.Z; M[11]:=0.0;
   M[12]:=Pt.X; M[13]:=Pt.Y; M[14]:=Pt.Z; M[15]:=1.0;  // ...translation = the display-frame body position
   lit := FLightingOn and (i <> GSunIdx);   // the Sun is the light source -> self-luminous, never shaded
-  glColor3f(1.0, 1.0, 1.0);   // white material (GL_COLOR_MATERIAL) when lit; plain white modulation when not
-  glEnable(GL_TEXTURE_2D);
-  glBindTexture(GL_TEXTURE_2D, FBodyTextures[i]);
+  if hasTex then
+   begin
+    glColor3f(1.0, 1.0, 1.0);   // white material (GL_COLOR_MATERIAL) when lit; plain white modulation when not
+    glEnable(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D, FBodyTextures[i]);
+   end
+  else
+   glColor3f(0.6, 0.6, 0.6);   // no texture: flat neutral grey; GL_LIGHTING gives it the 3D form
   if lit then glEnable(GL_LIGHTING);   // light ONLY the spheres (except the Sun); dots/orbits/sky stay unlit
+  triax := (pc.Rb > 0.0) and (pc.Rc > 0.0);   // triaxial radii present -> render an ellipsoid, else a plain sphere (Req>0 guaranteed above)
   glPushMatrix;
   glMultMatrixd(@M[0]);
+  if triax then
+   begin
+    glEnable(GL_NORMALIZE);   // gluSphere emits unit normals for a sphere; a non-uniform scale needs them renormalised or lighting is wrong
+    glScaled(1.0, pc.Rb/pc.Req, pc.Rc/pc.Req);   // squash local Y,Z to b,c (X=Req=a); M already orients these axes to the body's frame
+   end;
   gluSphere(FSphereQuad, rAU, SPHERE_SLICES, SPHERE_STACKS);
   glPopMatrix;
+  if triax then glDisable(GL_NORMALIZE);
   if lit then glDisable(GL_LIGHTING);
-  glBindTexture(GL_TEXTURE_2D, 0);
-  glDisable(GL_TEXTURE_2D);
+  if hasTex then
+   begin
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glDisable(GL_TEXTURE_2D);
+   end;
   // Rings (if this planet has one): a textured annulus in the equatorial plane (Xd/Yd = axes perpendicular to
   // the pole Zd), sized RING_INNER_MUL..RING_OUTER_MUL * the planet radius. Drawn after the sphere so the disk
   // occludes the far half.
@@ -2047,12 +2073,13 @@ var
   i, idx, lo, hi: Int64;
   j, k: Integer;
   Pt: TVec4D;
-  FBaryR: TVec4D;
+  FBaryR, GravOfs: TVec4D;
   nBSPX, nInt, nTotal: Int64;
 begin
   nBSPX  := FBSPXFile.DescCount;
   nInt := Length(IntForm.IntegrationS);
   nTotal := nBSPX + nInt;
+  GravOfs := TrailOrbitOfs;   // integrand trails are orbit-centre-relative -> shift them onto the orbit centre's dot (0 when centre = barycentre)
   // SSB-relative storage: FBaryR re-centres siblings + integrands to FBarycenter; DispPos then applies obliquity,
   // co-rotation and the FRotCenter re-centre for display. The FTrails line-strips are drawn raw because their
   // points were already baked through DispPos at store time (AdvanceScene), each in its own epoch's frame.
@@ -2119,7 +2146,7 @@ begin
         for j := 0 to FTrails[i].Count - 1 do
          begin
           k := (FTrails[i].Head - FTrails[i].Count + j + TRAIL_SIZE) mod TRAIL_SIZE;
-          glVertex3d(FTrails[i].Pts[k].X*KM2AU, FTrails[i].Pts[k].Y*KM2AU, FTrails[i].Pts[k].Z*KM2AU);
+          glVertex3d((FTrails[i].Pts[k].X+GravOfs.X)*KM2AU, (FTrails[i].Pts[k].Y+GravOfs.Y)*KM2AU, (FTrails[i].Pts[k].Z+GravOfs.Z)*KM2AU);   // orbit-centre-relative point + current centre offset
          end;
         glEnd;
        end;
@@ -2312,6 +2339,20 @@ begin
     S.R := S.R + cS.R;
     S.V := S.V + cS.V;
    end;
+end;
+
+function TMainForm.TrailOrbitOfs: TVec4D;
+// Integrand trails are stored RELATIVE TO the osculating-orbit centre (AdvanceScene, so Earth's ~4671 km reflex
+// wobble around the EMB is not baked into the history). This is where that centre sits in the display now -- add
+// it to each stored trail point so the whole path rides the centre's current dot. Identical to DrawOrbits'
+// GravOfs = DispPos(FOrbitR - FBaryR); zero when the orbit centre IS the barycentre (default), so trails then
+// draw exactly as before.
+var FBaryR, FOrbitR: TVec4D; oS: TState4D;
+begin
+  if (FBaryDescIdx >= 0) and (Length(States[0]) > FBaryDescIdx) then FBaryR := States[0][FBaryDescIdx].R
+  else FillChar(FBaryR, SizeOf(FBaryR), 0);
+  if AxisEndpointSSB(FOrbitCenter, oS) then FOrbitR := oS.R else FOrbitR := FBaryR;
+  Result := DispPos(FOrbitR - FBaryR);
 end;
 
 function TMainForm.IntegrandInSystem(idx: Int64): Boolean;
@@ -2706,7 +2747,7 @@ procedure TMainForm.PMOrbitCenterClick(Sender: TObject);
 // OscForms deliberately do NOT -- each one keeps whatever centre the user gave it, so several can show osculating
 // elements about different centres at the same time.
 var
-  idx: Int64;
+  idx, i: Int64;
   nm: string;
   mi, p: TMenuItem;
 begin
@@ -2717,6 +2758,11 @@ begin
   while (p <> nil) and (p <> PMOrbitCenter) do begin p.Checked := True; p := p.Parent; end;
   PMOrbitCenter.Tag := mi.Tag;
   FOrbitCenter := mi.Tag;
+  // Integrand trails are stored relative to the orbit centre (see AdvanceScene), so a centre change invalidates
+  // the accumulated history -- clear the integrand trails + frozen list. BSPX-body trails are barycentre-relative
+  // and stay. (Barycentre and co-rotation switches already clear; this covers the remaining trigger.)
+  for i := FBSPXFile.DescCount to High(FTrails) do FTrails[i].Count := 0;
+  FClearFrozen := True;
   if FOrbitCenter = 0 then nm := 'Solar System BC'   // the one SSB name used everywhere (combos + menus)
   else
    begin
@@ -3105,7 +3151,9 @@ var
   a: Single;
   c: TColorRec;
   expired: Boolean;
+  GravOfs: TVec4D;
 begin
+  GravOfs := TrailOrbitOfs;   // frozen trails are orbit-centre-relative (copied from the live trail) -> ride the orbit centre's dot as it moves during the fade
   expired := False;
   i := 0;
   while i <= High(FFrozen) do
@@ -3119,7 +3167,7 @@ begin
      begin
       glBegin(GL_LINE_STRIP);
       for k := 0 to High(FFrozen[i].Pts) do
-       glVertex3d(FFrozen[i].Pts[k].X*KM2AU, FFrozen[i].Pts[k].Y*KM2AU, FFrozen[i].Pts[k].Z*KM2AU);
+       glVertex3d((FFrozen[i].Pts[k].X+GravOfs.X)*KM2AU, (FFrozen[i].Pts[k].Y+GravOfs.Y)*KM2AU, (FFrozen[i].Pts[k].Z+GravOfs.Z)*KM2AU);
       glEnd;
      end;
     if Length(FFrozen[i].Pts) > 0 then
@@ -3127,7 +3175,7 @@ begin
       w := High(FFrozen[i].Pts);
       glEnable(GL_POINT_SMOOTH); glPointSize(BodyDotSize*FROZEN_DOT_MUL);   // scales with the viewport like the body dots, keeping it the touch smaller it was tuned to be
       glBegin(GL_POINTS);
-      glVertex3d(FFrozen[i].Pts[w].X*KM2AU, FFrozen[i].Pts[w].Y*KM2AU, FFrozen[i].Pts[w].Z*KM2AU);
+      glVertex3d((FFrozen[i].Pts[w].X+GravOfs.X)*KM2AU, (FFrozen[i].Pts[w].Y+GravOfs.Y)*KM2AU, (FFrozen[i].Pts[w].Z+GravOfs.Z)*KM2AU);
       glEnd;
       glPointSize(1.0); glDisable(GL_POINT_SMOOTH);
      end;
@@ -3164,7 +3212,8 @@ var
   i, tries: Int64;
   usedDt, FT0, maxStep: Double;
   adaptive: Boolean;
-  FBaryR: TVec4D;
+  FBaryR, FOrbitR: TVec4D;
+  oS: TState4D;
 begin
   if FClearFrozen then begin SetLength(FFrozen, 0); FClearFrozen := False; end;   // honour UI-thread reset request here (render thread owns FFrozen)
   if FT=NINF then FT:=FBSPXFile.Hdr.Epoch0;
@@ -3303,8 +3352,10 @@ begin
        INT_GAUSSRADAU15:
             begin // GaussRadau15 (IAS15) — adaptive, implicit; one accepted step per frame.
              GJHiActive := IntForm.CBprec1.Checked;         // J3/J4 zonal harmonics (user opt-in; IAS15 only)
-             // Per-body Yarkovsky: copy each active body's coefficients from IntForm, with CBprec3 as the
-             // global enable (a body with A1=A2=A3=0 stays a no-op regardless).
+             GDragActive := IntForm.CBprec4.Checked;        // atmospheric drag (user opt-in; IAS15 only)
+             // Per-body non-grav (Yarkovsky A1/A2/A3 + atmospheric drag InvBC, one TNonGrav): copy each body's
+             // record from IntForm, with CBprec3 as the SHARED global enable via .Active -- unchecked disables both.
+             // A body still contributes nothing where its own terms are zero (A1=A2=A3=0 and/or InvBC=0).
              if Length(GNonGrav) <> Length(IntForm.IntegrationNonGrav) then SetLength(GNonGrav, Length(IntForm.IntegrationNonGrav));
              for i := 0 to High(GNonGrav) do
               begin
@@ -3316,7 +3367,7 @@ begin
               Inc(tries);
               usedDt:=FEphemDelta;   // step actually attempted (var dt is overwritten by the call)
               FBSPXFile.PackPerturbers(PerturberStates);   // compact perturbers into the SoA the PN kernel consumes (pass nil below for the old AoS path)
-              if GaussRadau15_PN(FEphemDelta, FRadauLastDt, IntForm.IntegrationA, IntForm.IntegrationS, PerturberStates,
+              if GaussRadau15(FEphemDelta, FRadauLastDt, IntForm.IntegrationA, IntForm.IntegrationS, PerturberStates,
                               IntForm.IntegrationB, IntForm.IntegrationE, IntForm.IntegrationBr, IntForm.IntegrationEr,
                               IntForm.IntegrationCSX, IntForm.IntegrationCSV, FBSPXFile.PerturberSoA) then
                begin
@@ -3374,11 +3425,16 @@ begin
        FBaryR := States[0][FBaryDescIdx].R
       else
        FillChar(FBaryR, SizeOf(FBaryR), 0);
+      // Integrand trails are stored relative to the OSCULATING-ORBIT centre (FOrbitCenter), not the barycentre,
+      // so a geocentric orbit's path is not smeared by Earth's reflex wobble around the EMB (FOrbitCenter=FBary
+      // -> FOrbitR=FBaryR, unchanged). DrawTrajectories/DrawFrozen add TrailOrbitOfs to land them on the centre's
+      // dot. No FRotCenter re-centre here (raw Eps*CoRot) -- that lives in TrailOrbitOfs, as it does for the conic.
+      if AxisEndpointSSB(FOrbitCenter, oS) then FOrbitR := oS.R else FOrbitR := FBaryR;
 
       for i := 0 to FBSPXFile.DescCount-1 do
        if FBSPXFile.Desc[i].CenterID = FBarycenter then
         begin
-         FTrails[i].Pts[FTrails[i].Head] := DispPos(States[0][i].R);
+         FTrails[i].Pts[FTrails[i].Head] := DispPos(States[0][i].R);   // BSPX bodies stay barycentre-relative (their centre IS the barycentre)
          FTrails[i].Head := (FTrails[i].Head + 1) mod TRAIL_SIZE;
          if FTrails[i].Count < TRAIL_SIZE then Inc(FTrails[i].Count);
         end;
@@ -3386,7 +3442,7 @@ begin
       for i := 0 to Length(IntForm.IntegrationS)-1 do
         if FBSPXFile.DescCount + i < Length(FTrails) then
          begin
-          FTrails[FBSPXFile.DescCount+i].Pts[FTrails[FBSPXFile.DescCount+i].Head] := DispPos(IntForm.IntegrationS[i].R - FBaryR);
+          FTrails[FBSPXFile.DescCount+i].Pts[FTrails[FBSPXFile.DescCount+i].Head] := (IntForm.IntegrationS[i].R - FOrbitR)*FEpsMatrix*FCoRotMatrix;   // orbit-centre-relative (placed by TrailOrbitOfs at draw)
           FTrails[FBSPXFile.DescCount+i].Head  := (FTrails[FBSPXFile.DescCount+i].Head + 1) mod TRAIL_SIZE;
           if FTrails[FBSPXFile.DescCount+i].Count < TRAIL_SIZE then Inc(FTrails[FBSPXFile.DescCount+i].Count);
          end;

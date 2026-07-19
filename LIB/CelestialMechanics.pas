@@ -52,6 +52,8 @@ const
   // table (oblate bodies only), seeded lazily by TBSPXFile.Init from the file's reconciled const records.
   J2_CUTOFF_RADII = 100.0;   // AccelJ2All/AccelJHiAll skip a body's figure term beyond this many radii
                              // (J2 ~ 1/r^4 => sub-mm there); keeps it ~free away from encounters
+  DRAG_CUTOFF_SCALEH = 25.0; // AccelDragAll skips a body's atmosphere above Alt0 + this many scale heights
+                             // (rho ~ e^-25 ~ 1e-11 of Rho0 there); the sqrt-free far-field gate, like J2's
 
   SOLAR_MASS  = 1.0;
   JOVIAN_MASS = 1/1047.35;
@@ -71,8 +73,9 @@ type
     A1, A2, A3: Double;   // radial, transverse, normal   [au/day^2]
     r0:         Double;   // g(r) reference distance       [au]  (SBDB r_0; default 1.0)
     m:          Double;   // g(r) exponent                       (SBDB m;   default 2.0 = asteroid form)
-    Active:     Boolean;  // False => contributes nothing (pure gravitational + 1PN run)
-  end;
+    Active:     Boolean;  // False => the A1/A2/A3 comet term contributes nothing (drag below is independent of this)
+    InvBC:      Double;   // atmospheric drag: 1/BC = Cd*A/m [km^2/kg] (km-native, so AccelDragAll needs no unit bridge); hot path multiplies by it. 0 => no drag (skip).
+  end;                    // NB: appended last on purpose -- the pre-drag record is a byte-prefix, so old .icf files still load (see Int.pas v4)
 
   // One oblate perturber's figure data for the zonal close-encounter terms (see AccelJ2All/AccelJHiAll).
   TJ2Perturber = record
@@ -80,6 +83,19 @@ type
     J2, J3, J4: Double;   // zonal harmonic coefficients (J3/J4 used only by the opt-in AccelJHiAll)
     Req:        Double;   // equatorial reference radius the J_n are normalised to [km]
     Pole:       TVec4D;   // unit spin axis in the ICRF integration frame
+  end;
+
+  // One atmospheric perturber for the drag term (see AccelDragAll). Same descriptor-indexed working-set idea as
+  // TJ2Perturber; assembled at scene load by AddGAtmosphere. All km-native so the hot loop does no unit bridging.
+  TAtmPerturber = record
+    Idx:        Int64;    // this body's slot in the perturber array (into P[n])
+    Req:        Double;   // reference radius [km]; altitude h = |r| - Req
+    Rho0:       Double;   // reference density at Alt0 [kg/km^3] (= tabulated kg/m^3 * 1e9)
+    Alt0:       Double;   // reference altitude [km]
+    ScaleH:     Double;   // exponential scale height [km]:  rho(h) = Rho0*exp(-(h-Alt0)/ScaleH)
+    CutoffR2:   Double;   // Sqr(Req + Alt0 + DRAG_CUTOFF_SCALEH*ScaleH): sqrt-free far-field gate (rho negligible above)
+    Pole:       TVec4D;   // unit spin axis (ICRF), for the co-rotating atmosphere
+    Omega:      Double;   // signed spin rate [rad/s]; v_atm = Omega*(Pole x r)
   end;
 
   // Canonical per-body oblateness figure, keyed by NAIF centre id -- the constant store CelestialMechanics
@@ -97,10 +113,14 @@ type
     NAIFCode:        Int64;       // NAIF body/centre code (asteroids appear under BOTH 2000000+N and 20000000+N)
     Name:            AnsiString;
     GM:              Double;      // km^3/s^2 (0 if no DE440 default)
-    Req:             Double;      // equatorial radius, km (0 if none)
+    Req:             Double;      // equatorial radius, km = triaxial RADII[0]=a (0 if none)
+    Rb, Rc:          Double;      // triaxial radii RADII[1]=b, RADII[2]=c(polar), km (0 = spherical: render uses Req for all axes)
     J2, J3, J4:      Double;      // zonal harmonics (0 if none)
     PoleRA, PoleDec: Double;      // ICRF pole, deg (0 if none)
     PoleW, PoleRARate, PoleDecRate, PoleWRate: Double;   // prime meridian W0 (deg) + pole/PM rates (deg/century, deg/day)
+    AtmRho0:         Double;      // atmosphere drag model: reference mass density at AtmAlt0, kg/m^3 (0 = no atmosphere -> no drag)
+    AtmAlt0:         Double;      // reference altitude above Req at which AtmRho0 holds, km (the per-body drag-regime anchor)
+    AtmScaleH:       Double;      // exponential scale height H, km:  rho(h) = AtmRho0*exp(-(h-AtmAlt0)/H),  h = |r_body-centric| - Req
   end;
   PBodyConstant = ^TBodyConstant;
 
@@ -129,8 +149,11 @@ type
   //procedure RungeKutta5(dt: Double; a: TVec4DArray; S: TState4DArray; P: TState4DArrays);
   function DormandPrince54(dt: Double; a: TVec4DArray; S: TState4DArray; P: TState4DArrays; TmpR, TmpV, TmpA: TVec4DArray): Double;
   function DormandPrince87(dt: Double; a: TVec4DArray; S: TState4DArray; P: TState4DArrays; TmpR, TmpV, TmpA: TVec4DArray): Double;
-  function GaussRadau15(var dt: Double; dt_last: Double; a: TVec4DArray; S: TState4DArray; P: TState4DArrays; B, E, Br, Er: TVec4DArrays; csx, csv: TVec4DArray): Boolean;
-  function GaussRadau15_PN(var dt: Double; dt_last: Double; a: TVec4DArray; S: TState4DArray; P: TState4DArrays; B, E, Br, Er: TVec4DArrays; csx, csv: TVec4DArray; Pert: PPerturberSoA): Boolean;
+  // GaussRadau15 IS the former GaussRadau15 (the _PN suffix was dropped 2026-07-18
+  // when the original non-PN variant was retired). It is a strict superset of that old
+  // variant: 1PN term, J2/JHi, non-grav and drag, plus the perturber-SoA parameter.
+  // The retired original is preserved (commented out) as reference code near the body.
+  function GaussRadau15(var dt: Double; dt_last: Double; a: TVec4DArray; S: TState4DArray; P: TState4DArrays; B, E, Br, Er: TVec4DArrays; csx, csv: TVec4DArray; Pert: PPerturberSoA): Boolean;
   function KeplerUniv(Time, MU: Double; const Input: TState4D; var Output: TState4D): Boolean;
   function A1PN(S: TState4D; P: TState4DArray): TVec4D;
   function NonGravAccel(const Si, Sun: TState4D; const NG: TNonGrav): TVec4D;
@@ -138,11 +161,15 @@ type
   function OblatenessJHi(const Si, Body: TState4D; J3, J4, Rbody: Double; const Pole: TVec4D): TVec4D;
   function AccelJ2All(const Si: TState4D; const P: TState4DArray): TVec4D;
   function AccelJHiAll(const Si: TState4D; const P: TState4DArray): TVec4D;
+  function AccelDragAll(const Si: TState4D; const P: TState4DArray; InvBC: Double): TVec4D;   // atmospheric drag on Si from every body in GAtmosphere (IAS15_PN only)
   function  DE440OblatenessDefault(BodyID: Int64; out J2, J3, J4, Req, PoleRA, PoleDec: Double): Boolean;  // the single, pristine source of the DE440 figure literals (seeds GOblateness AND BSPXFile's file defaults)
   function  FindOblateness(BodyID: Int64): Int64;   // index in GOblateness, or -1
   procedure SetOblateness(BodyID: Int64; J2, J3, J4, Req, PoleRA, PoleDec: Double);  // upsert (BSPXFile.Open); pole RA/Dec in deg
+  function  PoleEquatorMatrix(PoleRA, PoleDec: Double): TMat4D;   // ICRF -> body-equatorial rotation (apply as v*M): Z = the IAU pole at (RA,Dec) deg, X = that equator's ascending node on the ICRF equator. Use .Transpose for the inverse (body-equatorial -> ICRF)
   procedure ClearGJ2;                               // reset the descriptor-indexed working set
   function  AddGJ2(BodyID, Idx: Int64): Boolean;    // append a GJ2 entry from GOblateness[BodyID] (Idx = perturber slot); True if a figure exists
+  procedure ClearGAtmosphere;                       // reset the drag working set
+  function  AddGAtmosphere(Idx: Int64; Req, Rho0_kgm3, Alt0, ScaleH, PoleRA, PoleDec, PoleWRate: Double): Boolean;   // append a GAtmosphere entry if Rho0>0 (params from the body's const record); True if added
   procedure InitBodyConstants;                          // populate the merged default table on first use (idempotent; NOT run at unit init)
   function  BodyConstIndex(NAIFCode: Int64): Int64;     // index into BodyConstants, or -1; auto-inits the table
   function  BodyConst(NAIFCode: Int64): PBodyConstant;  // pointer to the entry, or nil; auto-inits
@@ -150,14 +177,14 @@ type
   function  BodyGM(NAIFCode: Int64): Double;            // default GM (km^3/s^2), or 0
 var
   ERROR_TOLERANCE_DP: Double = 1.0E-10;
-  // Nongravitational-force hook consumed by GaussRadau15_PN -- PER INTEGRAND BODY: GNonGrav[i] holds body
+  // Nongravitational-force hook consumed by GaussRadau15 -- PER INTEGRAND BODY: GNonGrav[i] holds body
   // i's Yarkovsky coefficients (a fitted per-object property, like the IC, unlike the per-perturber J2).
   // The caller sizes/populates it (test: 1 element; viewer: from IntForm's per-body array); an element
   // left Active=False, or a body with no element (i > High(GNonGrav)), contributes nothing. GSunIdx is
   // the Sun's slot in the perturber arrays P[n] (shared by all bodies -- it's a perturber, not per-object).
   GNonGrav: array of TNonGrav;
   GSunIdx:  Int64 = 0;
-  // Zonal-J2 close-encounter hook consumed by GaussRadau15_PN (folded into the two AccelPN call sites).
+  // Zonal-J2 close-encounter hook consumed by GaussRadau15 (folded into the two AccelPN call sites).
   // GOblateness is the canonical per-body figure table (default DE440, overwritten by BSPXFile.Open). At
   // scene load the caller does ClearGJ2 then AddGJ2(TargetID, idx) per descriptor to assemble GJ2 -- the
   // descriptor-indexed working set the hot loop reads -- then GJ2Active := True. Left inactive the
@@ -165,10 +192,17 @@ var
   // geometry, swarm-safe); nongrav is per-body via GNonGrav[i].
   GJ2Active: Boolean = False;
   GJHiActive: Boolean = False;         // J3/J4 higher-zonal opt-in (IAS15_PN only; see AccelJHiAll)
+  // Atmospheric-drag hook (IAS15_PN only): GAtmosphere is the descriptor-indexed working set (assembled at scene
+  // load via ClearGAtmosphere + AddGAtmosphere, one entry per body with an atmosphere), read by AccelDragAll at
+  // the same two AccelPN sites as the Yarkovsky/J2 terms. GDragActive is the master switch (CBprec4). Unlike J2,
+  // drag is velocity-dependent AND carries a per-integrand coefficient (GNonGrav[i].InvBC), so it lives beside
+  // AccelPN, not in the position-only DP path.
+  GDragActive: Boolean = False;
 
   PN_SoA_MaxDiff: Double = 0.0;        // PN_SOA_VALIDATE: running max |AccelPN_SoA - AccelPN| component diff (expect ~0; the SoA port is bit-identical)
   GOblateness: array of TOblateness;   // canonical per-body figure table (default DE440, file-overwritable)
   GJ2: array of TJ2Perturber;          // descriptor-indexed working set (assembled from GOblateness at scene load)
+  GAtmosphere: array of TAtmPerturber; // descriptor-indexed drag working set (assembled at scene load; see AccelDragAll)
   AccelCallbacks: PAccelCallbacks = nil;
   BodyConstants: array of TBodyConstant;   // lazy merged default table (name+GM+figure); Open fills bspx holes from it; freed in finalization. See InitBodyConstants.
 
@@ -1770,7 +1804,7 @@ end;
 //  velocity-dependent, which breaks Stoermer-Verlet's position-only-force assumption and injects a
 //  spurious precession of the same order as the real effect unless dt is ~60x smaller than the
 //  Newtonian orbit needs. The relativistic effect belongs in a non-symplectic _PN integrator
-//  (GaussRadau15_PN), which handles f(r,v) natively at coarse step.
+//  (GaussRadau15), which handles f(r,v) natively at coarse step.
 //  1PN is very small but the other post-newtonian terms would be even smaller:
 //  0PN   / Newtonian acceleration                      ~ (v/c)^0
 //  1PN   / Schwarzschild precession                    ~ (v/c)^2
@@ -2485,6 +2519,11 @@ begin
   y := Incr.Z - Comp.Z; t := Acc.Z + y; Comp.Z := (t - Acc.Z) - y; Acc.Z := t;
 end;
 
+{ RETIRED 2026-07-18 — the ORIGINAL plain (non-PN) GaussRadau15, kept as reference
+  code only. No active caller remains; the live GaussRadau15 that follows (the former
+  GaussRadau15) is its superset. NOTE: the live function reclaimed this exact name,
+  so to revive this reference you must first rename it (and re-add its interface decl).
+
 function GaussRadau15(var dt: Double; dt_last: Double; a: TVec4DArray; S: TState4DArray; P: TState4DArrays; B, E, Br, Er: TVec4DArrays; csx, csv: TVec4DArray): Boolean;
 // IAS15 — 15th-order Gauss-Radau integrator with adaptive step size
 // (Everhart 1985; Rein & Spiegel 2015; timestep per Pham, Rein & Spiegel 2023).
@@ -2833,13 +2872,15 @@ begin
   dt := dt_new;
   Result := True;
 end;
+}
 
-function GaussRadau15_PN(var dt: Double; dt_last: Double; a: TVec4DArray; S: TState4DArray; P: TState4DArrays; B, E, Br, Er: TVec4DArrays; csx, csv: TVec4DArray; Pert: PPerturberSoA): Boolean;
-// IAS15_PN: GaussRadau15 plus the 1PN/EIH relativistic term (via AccelPN). Same calling
-// contract as GaussRadau15, but it also PREDICTS THE NODE VELOCITY (single integral of the
+function GaussRadau15(var dt: Double; dt_last: Double; a: TVec4DArray; S: TState4DArray; P: TState4DArrays; B, E, Br, Er: TVec4DArrays; csx, csv: TVec4DArray; Pert: PPerturberSoA): Boolean;
+// IAS15_PN: the Gauss-Radau step PLUS the 1PN/EIH relativistic term (via AccelPN). Beyond
+// the retired plain variant it also PREDICTS THE NODE VELOCITY (single integral of the
 // acceleration polynomial) so the velocity-dependent 1PN force is sampled self-consistently
 // at each Gauss-Radau node; perturber a_j/U_j are precomputed once per node snapshot
-// (PerturberPN). The original GaussRadau15 is left untouched.
+// (PerturberPN). This is the sole surviving Gauss-Radau integrator (the _PN suffix was
+// dropped 2026-07-18 when the non-PN original was retired; see the reference block above).
 // IAS15 — 15th-order Gauss-Radau integrator with adaptive step size
 // (Everhart 1985; Rein & Spiegel 2015; timestep per Pham, Rein & Spiegel 2023).
 // Ported from REBOUND's integrator_ias15.c to fit the precomputed-perturber model
@@ -2983,7 +3024,7 @@ begin
     v0 := S[i].V;
     // Per-body Yarkovsky: pick this body's coefficients (or an inactive record if it has none). NGi is
     // reused for every node of body i below.
-    if i <= High(GNonGrav) then NGi := GNonGrav[i] else NGi.Active := False;
+    if i <= High(GNonGrav) then NGi := GNonGrav[i] else begin NGi.Active := False; NGi.InvBC := 0.0; end;
 
     // Constant term a0 = full (Newtonian + 1PN) acceleration at the current state (node 0).
     sNode.R := S[i].R; sNode.V := v0;
@@ -2991,7 +3032,7 @@ begin
     // "+ NonGravAccel(...)" tail here and at the node-n site below (leaving just the AccelPN call), OR
     // simply leave GNonGrav[i] inactive -- with the hook inactive NonGravAccel returns zero and the
     // result is already identical to the original.
-    a0 := PNAccelSelect(sNode, P[0], aP[0], Pert, 0) + NonGravAccel(sNode, P[0][GSunIdx], NGi) + AccelJ2All(sNode, P[0]) + AccelJHiAll(sNode, P[0]);
+    a0 := PNAccelSelect(sNode, P[0], aP[0], Pert, 0) + NonGravAccel(sNode, P[0][GSunIdx], NGi) + AccelJ2All(sNode, P[0]) + AccelJHiAll(sNode, P[0]) + AccelDragAll(sNode, P[0], NGi.InvBC);
     // Extra per-body acceleration (AccForm thrust). The AccelCallbacks<>nil test bypasses it entirely in the
     // common (99%) no-thrust case; sNode carries the node velocity IAS15_PN already predicts, so the velocity-
     // dependent term (prograde/normal) is evaluated on a consistent state. and-shortcircuit avoids deref-ing nil.
@@ -3053,7 +3094,7 @@ begin
         // Full (Newtonian + 1PN) acceleration at node n.
         sNode.R := rNode; sNode.V := vNode;
         // NONGRAV HOOK (node n) -- see the node-0 site above for how to disable/remove it.
-        aNode := PNAccelSelect(sNode, P[n], aP[n], Pert, n) + NonGravAccel(sNode, P[n][GSunIdx], NGi) + AccelJ2All(sNode, P[n]) + AccelJHiAll(sNode, P[n]);
+        aNode := PNAccelSelect(sNode, P[n], aP[n], Pert, n) + NonGravAccel(sNode, P[n][GSunIdx], NGi) + AccelJ2All(sNode, P[n]) + AccelJHiAll(sNode, P[n]) + AccelDragAll(sNode, P[n], NGi.InvBC);
         if (AccelCallbacks<>nil) and Assigned(AccelCallbacks^[i]) then aNode := aNode + AccelCallbacks^[i](i, sNode, Pointer(P[n]), Length(P[n]));   // extra thrust (see node-0 site)
         gvec := aNode - a0;
 
@@ -3520,6 +3561,38 @@ begin
   Result.W := 0.0;
 end;
 
+function AccelDragAll(const Si: TState4D; const P: TState4DArray; InvBC: Double): TVec4D;
+// Sum the atmospheric-drag acceleration on Si from every body in GAtmosphere. Zero unless GDragActive AND the
+// integrand carries a ballistic term (InvBC>0) -- the swarm of drag-free integrands exits on the first line. Per
+// body a sqrt-free d^2 gate skips anything above ~DRAG_CUTOFF_SCALEH scale heights (rho negligible), so far from
+// every atmosphere it costs only a subtract + dot + compare (as AccelJ2All). Within the gate:
+//   a = -1/2 * rho(h) * |vrel| * InvBC * vrel,   vrel = v - v_atm,  v_atm = Omega*(Pole x r)  (co-rotating air)
+// All km-native (rho kg/km^3, InvBC km^2/kg, r km, v km/s) -> a in km/s^2 with no unit bridge, just the physical
+// 1/2. Velocity-dependent (like 1PN and Yarkovsky), so IAS15_PN only. Folded into the two AccelPN sites.
+var
+  k: Integer;
+  d, vrel: TVec4D; d2, rmag, h, rho: Double;
+begin
+  FillChar(Result, SizeOf(TVec4D), 0);
+  if (not GDragActive) or (InvBC = 0.0) then Exit;
+  for k := 0 to High(GAtmosphere) do
+    if (GAtmosphere[k].Idx >= 0) and (GAtmosphere[k].Idx <= High(P)) then
+    begin
+      d  := Si.R - P[GAtmosphere[k].Idx].R;
+      d2 := d or d;                                        // |r|^2 (no sqrt)
+      if d2 < GAtmosphere[k].CutoffR2 then                 // within the atmosphere's reach -> evaluate (the rare case)
+      begin
+        rmag := Sqrt(d2);
+        h    := rmag - GAtmosphere[k].Req;
+        if h < 0.0 then h := 0.0;                          // at/below the surface: clamp to the model surface density (bounded rho, no exp overflow; object is reentering anyway)
+        rho  := GAtmosphere[k].Rho0 * Exp(-(h - GAtmosphere[k].Alt0)/GAtmosphere[k].ScaleH);
+        vrel := (Si.V - P[GAtmosphere[k].Idx].V) - (GAtmosphere[k].Pole xor d)*GAtmosphere[k].Omega;   // relative to the co-rotating atmosphere
+        Result := Result - vrel*(0.5 * rho * vrel.Magnitude3D * InvBC);   // -1/2 rho |v| InvBC * v  [km/s^2]
+      end;
+    end;
+  Result.W := 0.0;
+end;
+
 function DE440OblatenessDefault(BodyID: Int64; out J2, J3, J4, Req, PoleRA, PoleDec: Double): Boolean;
 // Figure defaults now live on the BodyConstants rows (the single source of truth); this is a thin read-back of
 // the zonal/radius/pole subset the integrator + BSPXFile seeds want. Result = True if the body carries a figure.
@@ -3560,6 +3633,16 @@ begin
   GOblateness[i].Pole.W := 0.0;
 end;
 
+function PoleEquatorMatrix(PoleRA, PoleDec: Double): TMat4D;
+// Rotation from ICRF to the body's equatorial frame, applied as v*M. Z lands on the IAU pole (RA,Dec, deg); X on the
+// ascending node of that equator on the ICRF equator. v*GetRotMat4D is an active +angle rotation, so the frame
+// rotations take negated angles (the same convention Integrator3D's EpsMatrix uses). Sequence Rz(-(RA+90)) then
+// Rx(-(90-Dec)) sends the pole (cosD cosA, cosD sinA, sinD) to +Z. Transpose it for the inverse (equatorial->ICRF).
+begin
+  Result := GetRotMat4D(-(PoleRA*Pi/180.0 + Pi/2), 0.0, 0.0, 1.0) *
+            GetRotMat4D(-(Pi/2 - PoleDec*Pi/180.0), 1.0, 0.0, 0.0);
+end;
+
 procedure ClearGJ2;
 begin
   SetLength(GJ2, 0);
@@ -3582,10 +3665,123 @@ begin
   GJ2[n].Pole := GOblateness[i].Pole;
 end;
 
+procedure ClearGAtmosphere;
+begin
+  SetLength(GAtmosphere, 0);
+end;
+
+function AddGAtmosphere(Idx: Int64; Req, Rho0_kgm3, Alt0, ScaleH, PoleRA, PoleDec, PoleWRate: Double): Boolean;
+// Append a drag working-set entry for a body with an atmosphere. Params come straight from the body's reconciled
+// const record (Req/AtmRho0/Alt0/ScaleH + pole RA/Dec + PM rate). No atmosphere (Rho0<=0) or no shape (Req/ScaleH
+// <=0) -> nothing added. All conversions to km-native units happen HERE (once per scene load), so AccelDragAll's
+// hot loop stays a pure-km evaluation: density kg/m^3 -> kg/km^3 (x1e9); PM rate deg/day -> rad/s.
+var n: Int64; ra, dec, cd: Double;
+begin
+  Result := False;
+  if (Rho0_kgm3 <= 0.0) or (Req <= 0.0) or (ScaleH <= 0.0) then Exit;
+  n := Length(GAtmosphere); SetLength(GAtmosphere, n+1);
+  GAtmosphere[n].Idx      := Idx;
+  GAtmosphere[n].Req      := Req;
+  GAtmosphere[n].Rho0     := Rho0_kgm3 * 1.0E9;                         // kg/m^3 -> kg/km^3
+  GAtmosphere[n].Alt0     := Alt0;
+  GAtmosphere[n].ScaleH   := ScaleH;
+  GAtmosphere[n].CutoffR2 := Sqr(Req + Alt0 + DRAG_CUTOFF_SCALEH*ScaleH);
+  ra := PoleRA*Pi/180.0; dec := PoleDec*Pi/180.0; cd := Cos(dec);      // ICRF pole unit vector (as SetOblateness)
+  GAtmosphere[n].Pole.X := cd*Cos(ra);
+  GAtmosphere[n].Pole.Y := cd*Sin(ra);
+  GAtmosphere[n].Pole.Z := Sin(dec);
+  GAtmosphere[n].Pole.W := 0.0;
+  GAtmosphere[n].Omega  := PoleWRate*(Pi/180.0)/DAY2SEC;               // deg/day -> rad/s (signed: retrograde bodies < 0)
+  Result := True;
+end;
+
 type
   TFig = record Req, J2, J3, J4, PoleRA, PoleRARate, PoleDec, PoleDecRate, PoleW, PoleWRate: Double; end;
+  TBodyShape = record Code: Int64; Rb, Rc: Double; end;   // one triaxial-radii override (b, c in km) applied by NAIF code
 var
   BCN: Int64;   // InitBodyConstants fill cursor (single-threaded lazy init)
+const
+  // Triaxial radii RADII[1]=b, RADII[2]=c(polar) in km, from pck00011.tpc, for every non-spherical body the table
+  // knows (48 bodies; asteroids listed under both their 2000000+N and 20000000+N codes). Applied at the end of
+  // InitBodyConstants; a=RADII[0] is already stored as Req. Bodies not listed stay spherical (Rb=Rc=0 -> use Req).
+  BODY_SHAPES: array[0..54] of TBodyShape = (
+    (Code:199; Rb:2440.53; Rc:2438.26),
+    (Code:399; Rb:6378.14; Rc:6356.75),
+    (Code:401; Rb:11.4; Rc:9.1),
+    (Code:402; Rb:6; Rc:5.1),
+    (Code:499; Rb:3396.19; Rc:3376.2),
+    (Code:501; Rb:1819.4; Rc:1815.7),
+    (Code:502; Rb:1560.3; Rc:1559.5),
+    (Code:505; Rb:73; Rc:64),
+    (Code:514; Rb:49; Rc:42),
+    (Code:515; Rb:8; Rc:7),
+    (Code:516; Rb:20; Rc:17),
+    (Code:599; Rb:71492; Rc:66854),
+    (Code:601; Rb:196.7; Rc:190.6),
+    (Code:602; Rb:251.4; Rc:248.3),
+    (Code:603; Rb:528.3; Rc:526.3),
+    (Code:604; Rb:561.3; Rc:559.6),
+    (Code:605; Rb:763.1; Rc:762.4),
+    (Code:606; Rb:2574.78; Rc:2574.47),
+    (Code:607; Rb:133; Rc:102.7),
+    (Code:608; Rb:745.7; Rc:712.1),
+    (Code:609; Rb:108.5; Rc:101.8),
+    (Code:610; Rb:93; Rc:76.3),
+    (Code:611; Rb:57.3; Rc:53),
+    (Code:612; Rb:19.6; Rc:13.3),
+    (Code:613; Rb:11.8; Rc:9.8),
+    (Code:614; Rb:9.3; Rc:6.3),
+    (Code:615; Rb:17.8; Rc:9.4),
+    (Code:616; Rb:41.6; Rc:28.2),
+    (Code:617; Rb:40.8; Rc:31.5),
+    (Code:618; Rb:15.4; Rc:10.4),
+    (Code:632; Rb:1.29; Rc:1.21),
+    (Code:633; Rb:2.08; Rc:1.8),
+    (Code:634; Rb:1.2; Rc:1),
+    (Code:635; Rb:4.5; Rc:2.8),
+    (Code:653; Rb:0.25; Rc:0.2),
+    (Code:699; Rb:60268; Rc:54364),
+    (Code:701; Rb:577.9; Rc:577.7),
+    (Code:705; Rb:234.2; Rc:232.9),
+    (Code:799; Rb:25559; Rc:24973),
+    (Code:808; Rb:208; Rc:201),
+    (Code:899; Rb:24764; Rc:24341),
+    (Code:2000001; Rb:487.3; Rc:446),
+    (Code:20000001; Rb:487.3; Rc:446),
+    (Code:2000004; Rb:280; Rc:229),
+    (Code:20000004; Rb:280; Rc:229),
+    (Code:2000016; Rb:116; Rc:94.5),
+    (Code:20000016; Rb:116; Rc:94.5),
+    (Code:2000021; Rb:50.5; Rc:46.5),
+    (Code:20000021; Rb:50.5; Rc:46.5),
+    (Code:2000052; Rb:165; Rc:124.5),
+    (Code:20000052; Rb:165; Rc:124.5),
+    (Code:2000433; Rb:5.5; Rc:5.5),
+    (Code:20000433; Rb:5.5; Rc:5.5),
+    (Code:2000511; Rb:147; Rc:127),
+    (Code:20000511; Rb:147; Rc:127)
+  );
+
+type
+  TBodyAtm = record Code: Int64; Rho0, Alt0, ScaleH: Double; end;   // one exponential-atmosphere override
+const
+  // Exponential-atmosphere drag parameters, per body: rho(h) = Rho0*exp(-(h-Alt0)/ScaleH), h = altitude above Req.
+  // Rho0 in kg/m^3, Alt0/ScaleH in km. Each anchored in that body's own drag-relevant regime (a single isothermal
+  // exponential is only a local linearisation, so the anchor is chosen where decay actually happens). Applied at the
+  // end of InitBodyConstants; every body not listed has no atmosphere (Rho0=0 -> no drag).
+  //   SOLID:  Earth (Vallado exponential-atmosphere table, CIRA-72, 300 km band); gas giants at the 1-bar level
+  //           (NASA planetary fact-sheet scale heights).
+  //   ESTIMATE (verify before trusting -- order-of-magnitude, from mixed sources): Venus/Mars/Titan upper atmospheres.
+  BODY_ATMOSPHERES: array[0..7] of TBodyAtm = (
+    (Code:399; Rho0:5.464e-10; Alt0:180.0; ScaleH:29.740),   // Earth  -- Vallado exp-atm, 180 km anchor (centres the visible-drag band ~150-250 km; predicts ~1.5e-9 @150, 2.8e-10 @200, 5.3e-11 @250 km)
+    (Code:299; Rho0:6.0e-9;    Alt0:150.0; ScaleH:8.0),      // Venus  -- ESTIMATE ~3-5x (Venus Express VExADE / VIRA high atmosphere @150 km; day-night averaged, H from T~200K CO2)
+    (Code:499; Rho0:1.5e-8;    Alt0:130.0; ScaleH:10.0),     // Mars   -- ESTIMATE ~2-3x (MAVEN accelerometer / aerobraking regime @130 km, T~130K)
+    (Code:606; Rho0:5.0e-10;   Alt0:1000.0;ScaleH:70.0),     // Titan  -- ESTIMATE ~5-10x (Cassini INMS thermosphere @1000 km flyby alt; very extended, g~0.7 m/s^2)
+    (Code:599; Rho0:0.16;      Alt0:0.0;   ScaleH:27.0),     // Jupiter  -- 1-bar level (Alt0=0 = Req)
+    (Code:699; Rho0:0.19;      Alt0:0.0;   ScaleH:59.5),     // Saturn   -- 1-bar level
+    (Code:799; Rho0:0.42;      Alt0:0.0;   ScaleH:27.7),     // Uranus   -- 1-bar level
+    (Code:899; Rho0:0.45;      Alt0:0.0;   ScaleH:19.7)      // Neptune  -- 1-bar level
+  );
 
 function Fig(Req, J2, J3, J4, PoleRA, PoleRARate, PoleDec, PoleDecRate, PoleW, PoleWRate: Double): TFig;
 begin
@@ -3618,38 +3814,55 @@ procedure InitBodyConstants;
 // freed in finalization, so a TBSPXFile created merely to Init/list a file allocates none of it. Asteroid/KBO
 // GMs are AU^3/day^2 literals converted via AU_KM/SEC2DAY. Indices 0..10 stay aligned with
 // codes 0..10 for the O(1) lookup path.
+var
+  i, si: Int64;
 begin
   if Length(BodyConstants)>0 then Exit;   // populate once; idempotent
   SetLength(BodyConstants, 1091);
   BCN:=0;
-  Add(0, 'Solar System BC', 132890518666.61139);
-  Add(1, 'Mercury BC', 22031.868551400003);
-  Add(2, 'Venus BC', 324858.592);
-  Add(3, 'Earth BC', 403503.2356254802);
-  Add(4, 'Mars BC', 42828.3758157561);
-  Add(5, 'Jupiter BC', 126712764.09999998);
-  Add(6, 'Saturn BC', 37940584.8418);
-  Add(7, 'Uranus BC', 5794556.3999999985);
-  Add(8, 'Neptune BC', 6836527.100580399);
-  Add(9, 'Pluto BC', 975.5);
+  // SSB-GM is NOT a canonical constant -- it is the sum of the bodies below: GM(Sun) + the 9 planetary-system
+  // barycenters (codes 1..9, canonical DE440, each already covering its planet + satellites) + every asteroid/TNO
+  // GM (374 unique small bodies). This literal is the table-only value; TBSPXFile.Init recomputes it (via
+  // ComputeSSBGM) once a file is loaded, so it also reflects bodies the file adds or GMs it overrides. Keep the
+  // literal current for the no-file case: it must equal the sum below. Old hand-tuned approximation was
+  // 132890518666.61139 (this sum differs by +2406.94 km^3/s^2 = +1.8e-8, mostly the newly added small bodies).
+  Add(0, 'Solar System BC', 132890521073.5522);
+  // Planetary-system barycenters: canonical DE440 constants, each already = its planet + satellites. The trailing
+  // CHECKSUM is that sum recomputed from this table's individual bodies; it should match to ~1e-6 or better. A
+  // larger drift flags a mistyped satellite GM or a missing body (it does NOT feed the SSB sum -- the canonical
+  // barycenter GM above does).
+  Add(1, 'Mercury BC', 22031.868551400003);    // checksum 199 (no satellites) = 22031.868551400003
+  Add(2, 'Venus BC', 324858.592);              // checksum 299 (no satellites) = 324858.592
+  Add(3, 'Earth BC', 403503.2356254802);       // checksum 399+301 = 403503.2356254802
+  Add(4, 'Mars BC', 42828.3758157561);         // checksum 499+401..402 = 42828.37442560939
+  Add(5, 'Jupiter BC', 126712764.09999998);    // checksum 599+501..598 = 126712761.99299538
+  Add(6, 'Saturn BC', 37940584.8418);          // checksum 699+601..698 = 37940583.97963841
+  Add(7, 'Uranus BC', 5794556.3999999985);     // checksum 799+701..798 = 5794556.5275
+  Add(8, 'Neptune BC', 6836527.100580399);     // checksum 899+801..898 = 6836534.817940682
+  Add(9, 'Pluto BC', 975.5);                   // checksum 999+901..905 = 975.5012163306836
   Add(10, 'Sun', 132712440041.27942, Fig(696000.0,2.19613915165298e-07,0.0,0.0, 286.13,0.0, 63.87,0.0, 84.176,14.1844));
   Add(199, 'Mercury', 22031.868551400003, Fig(2440.53,0.0,0.0,0.0, 281.0103,-0.0328, 61.4155,-0.0049, 329.5988,6.1385108));
   Add(299, 'Venus', 324858.592, Fig(6051.8,0.0,0.0,0.0, 272.76,0.0, 67.16,0.0, 160.2,-1.4813688));
   Add(399, 'Earth', 398600.43550702266, Fig(6378.1366,0.00108262539,-2.53241e-06,-1.619898e-06, 0.0,-0.641, 90.0,-0.557, 190.147,360.9856235));
   Add(499, 'Mars', 42828.37362069909, Fig(3396.0,0.001956608633534895,3.147611937672662e-05,-1.53876451692e-05, 317.6808573437165,-0.10927547, 52.88644453060407,-0.05827105, 176.049863,350.891982443297));
+  // The MAR099 satellite solution states Mars' orientation differently: pole RA0=316.0211376738126 (-0.1134395815491/cy),
+  // Dec0=59.1103736526218 (-0.1022859915591/cy), W0=174.2904350227150 (+350.8919822629072/day). Those base terms differ
+  // from the IAU values above by ~6 deg in Dec -- NOT a typo: MAR099 carries them with a large nutation series (one Dec
+  // amplitude is -11.18 deg), so its base pole is the series' constant term, not the physical pole direction. The linear
+  // IAU model above already folds that in and is what we use; the raw MAR099 terms are kept here only for reference.
   Add(599, 'Jupiter', 126686531.9003704, Fig(71492.0,0.0146965063,-4.5e-08,-0.0005866085, 268.0566974810512,-0.006499, 64.49533881439783,0.002413, 284.95,870.536));
   Add(699, 'Saturn', 37931206.23436167, Fig(60330.0,0.01629061510215236,9.519974025353707e-08,-0.0009351185734877162, 40.59487211316282,-0.036, 83.53435144537646,-0.004, 38.9,810.7939024));
   Add(799, 'Uranus', 5793951.256527211, Fig(25559.0,0.003508966976546036,0.0,-3.579347133056984e-05, 77.31186370800411,0.0, 15.17140155748226,0.0, 203.81,-501.1600928));
   Add(899, 'Neptune', 6835103.145462294, Fig(24764.0,0.003536297303482466,0.0,-3.595236402334314e-05, 299.4129156863023,0.0, 43.35186141539896,0.0, 249.978,541.1397757));
   Add(999, 'Pluto', 869.6138177608748, Fig(1188.3,0.0,0.0,0.0, 132.993,0.0, -6.163,0.0, 302.695,56.3625225));
-  Add(301, 'Moon', 4902.80011845755, Fig(1737.4,0.0,0.0,0.0, 269.9949,0.0031, 66.5392,0.013, 38.3213,13.17635815));
-  Add(401, 'Phobos', 0.0007087546066894452, Fig(13.0,0.0,0.0,0.0, 317.67071657,-0.10844326, 52.88627266,-0.06134706, 35.1877444,1128.84475928));
-  Add(402, 'Deimos', 9.615569648120313e-05, Fig(7.8,0.0,0.0,0.0, 316.65705808,-0.10518014, 53.50992033,-0.05979094, 79.39932954,285.16188899));
-  Add(501, 'Io', 5959.915466180539, Fig(1829.4,0.0,0.0,0.0, 268.05,-0.009, 64.5,0.003, 200.39,203.4889538));
-  Add(502, 'Europa', 3202.712099607295, Fig(1562.6,0.0,0.0,0.0, 268.08,-0.009, 64.51,0.003, 36.022,101.3747235));
-  Add(503, 'Ganymede', 9887.832752719638, Fig(2631.2,0.0,0.0,0.0, 268.2,-0.009, 64.57,0.003, 44.064,50.3176081));
-  Add(504, 'Callisto', 7179.283402579837, Fig(2410.3,0.0,0.0,0.0, 268.72,-0.009, 64.83,0.003, 259.51,21.5710715));
-  Add(505, 'Amalthea', 0.1645634534798259, Fig(125.0,0.0,0.0,0.0, 268.05,-0.009, 64.49,0.003, 231.67,722.631456));
+  Add(301, 'Moon', 4902.80011845755, Fig(1738.0,2.0321568e-4,8.46e-6,0.0, 269.9949,0.0031, 66.5392,0.013, 38.3213,13.17635815));   // lunar gravity, DE430-consistent. Reference R=1738.0 km (was 1737.4 = the mean radius, but OblatenessJ2 uses Req as the J2/J3 REFERENCE radius, and DE430/GRAIL define the coefficients at 1738.0). J2=203.21568e-6 (DE430 fixed), J3=+8.46e-6 (GRAIL). J4=0: no J4 in the adopted low-degree set. C22=22.38274e-6 triaxiality is SECTORAL -> needs tesseral code (AccelJ2All is zonal only). GM kept at DE440 4902.80011845755 (DE430: 4902.80007, ~1e-8 diff)
+  Add(401, 'Phobos', 0.0007087546066894452, Fig(13.0,7.482678535583680e-02,0.0,0.0, 317.67071657,-0.10844326, 52.88627266,-0.06134706, 35.1877444,1128.84475928));   // J2 from MAR099
+  Add(402, 'Deimos', 9.615569648120313e-05, Fig(7.8,1.081173156537400e-01,0.0,0.0, 316.65705808,-0.10518014, 53.50992033,-0.05979094, 79.39932954,285.16188899));   // J2 from MAR099
+  Add(501, 'Io', 5959.915466180539, Fig(1829.4,1.823646136416393e-03,0.0,0.0, 268.05,-0.009, 64.5,0.003, 200.39,203.4889538));   // J2 from JUP365
+  Add(502, 'Europa', 3202.712099607295, Fig(1562.6,4.388708176988398e-04,0.0,0.0, 268.08,-0.009, 64.51,0.003, 36.022,101.3747235));   // J2 from JUP365
+  Add(503, 'Ganymede', 9887.832752719638, Fig(2631.2,1.335434133821036e-04,-1.179470540188439e-05,2.388685790723879e-05, 268.2,-0.009, 64.57,0.003, 44.064,50.3176081));   // J2/J3/J4 from JUP365
+  Add(504, 'Callisto', 7179.283402579837, Fig(2410.3,3.657037635982658e-05,0.0,0.0, 268.72,-0.009, 64.83,0.003, 259.51,21.5710715));   // J2 from JUP365
+  Add(505, 'Amalthea', 0.1645634534798259, Fig(125.0,6.900777672565674e-02,-1.795225686177211e-03,-1.471584466885456e-02, 268.05,-0.009, 64.49,0.003, 231.67,722.631456));   // J2/J3/J4 from JUP365
   Add(506, 'Himalia', 0.1515524299611265, Fig(85.0,0.0,0.0,0.0, 0.0,0.0, 0.0,0.0, 0.0,0.0));
   Add(507, 'Elara', 0.0, Fig(40.0,0.0,0.0,0.0, 0.0,0.0, 0.0,0.0, 0.0,0.0));
   Add(508, 'Pasiphae', 0.0, Fig(18.0,0.0,0.0,0.0, 0.0,0.0, 0.0,0.0, 0.0,0.0));
@@ -3762,14 +3975,17 @@ begin
   Add(55542, 'S/2017 J 18', 0.0);
   Add(55543, 'S/2021 J 7', 0.0);
   Add(55544, 'S/2021 J 8', 0.0);
-  Add(601, 'Mimas', 2.503488768152587, Fig(207.8,0.0,0.0,0.0, 40.66,-0.036, 83.52,-0.004, 333.46,381.994555));
-  Add(602, 'Enceladus', 7.210366688598896, Fig(256.6,0.0,0.0,0.0, 40.66,-0.036, 83.52,-0.004, 6.32,262.7318996));
-  Add(603, 'Tethys', 41.21352885489587, Fig(538.4,0.0,0.0,0.0, 40.66,-0.036, 83.52,-0.004, 8.95,190.6979085));
-  Add(604, 'Dione', 73.11607172482067, Fig(563.4,0.0,0.0,0.0, 40.66,-0.036, 83.52,-0.004, 357.6,131.5349316));
-  Add(605, 'Rhea', 153.9417519146563, Fig(765.0,0.0,0.0,0.0, 40.38,-0.036, 83.55,-0.004, 235.16,79.6900478));
-  Add(606, 'Titan', 8978.137095521046, Fig(2575.15,0.0,0.0,0.0, 39.4827,0.0, 83.4279,0.0, 186.5855,22.5769768));
+  Add(601, 'Mimas', 2.503488768152587, Fig(207.8,3.551000000000000e-02,0.0,0.0, 40.66,-0.036, 83.52,-0.004, 333.46,381.994555));   // J2 from SAT441
+  Add(602, 'Enceladus', 7.210366688598896, Fig(256.6,5.532796719876299e-03,-2.102102641200142e-04,0.0, 40.66,-0.036, 83.52,-0.004, 6.32,262.7318996));   // J2/J3 from SAT441
+  Add(603, 'Tethys', 41.21352885489587, Fig(538.4,8.724000000000001e-03,0.0,0.0, 40.66,-0.036, 83.52,-0.004, 8.95,190.6979085));   // J2 from SAT441
+  Add(604, 'Dione', 73.11607172482067, Fig(563.4,1.456222614897028e-03,0.0,0.0, 40.66,-0.036, 83.52,-0.004, 357.6,131.5349316));   // J2 from SAT441
+  Add(605, 'Rhea', 153.9417519146563, Fig(765.0,8.929517714137424e-04,0.0,0.0, 40.38,-0.036, 83.55,-0.004, 235.16,79.6900478));   // J2 from SAT441
+  Add(606, 'Titan', 8978.137095521046, Fig(2575.15,3.243925040076594e-05,-1.041523409146067e-06,-1.923742370332280e-06, 39.4827,0.0, 83.4279,0.0, 186.5855,22.5769768));   // J2/J3/J4 from SAT441
   Add(607, 'Hyperion', 0.3704913747932265, Fig(180.1,0.0,0.0,0.0, 0.0,0.0, 0.0,0.0, 0.0,0.0));
-  Add(608, 'Iapetus', 120.5151060137642, Fig(745.7,0.0,0.0,0.0, 318.16,-3.949, 75.03,-1.143, 355.2,4.5379572));
+  // SAT441 lists a fixed pole for Hyperion (RA0=36.363, Dec0=83.862, W0=90.0, +16.91995/day), but Hyperion is a chaotic
+  // rotator with no stable spin axis, so any fixed pole is a nominal placeholder rather than a real orientation. Left at 0
+  // deliberately -- a zeroed pole is the more honest 'unknown', and its oblateness term (J2=0 here anyway) is unaffected.
+  Add(608, 'Iapetus', 120.5151060137642, Fig(745.7,1.761730000000000e-02,0.0,-4.434000000000000e-04, 318.16,-3.949, 75.03,-1.143, 355.2,4.5379572));   // J2/J4 from SAT441
   Add(609, 'Phoebe', 0.5547860052791678, Fig(109.4,0.0,0.0,0.0, 356.9,0.0, 77.8,0.0, 178.58,931.639));
   Add(610, 'Janus', 0.1265765099012197, Fig(101.7,0.0,0.0,0.0, 40.58,-0.036, 83.52,-0.004, 58.83,518.2359876));
   Add(611, 'Epimetheus', 0.03512333288208074, Fig(64.9,0.0,0.0,0.0, 40.58,-0.036, 83.52,-0.004, 293.87,518.4907239));
@@ -3917,7 +4133,7 @@ begin
   Add(712, 'Portia', 0.0, Fig(54.0,0.0,0.0,0.0, 257.31,0.0, -15.18,0.0, 25.03,-701.486587));
   Add(713, 'Rosalind', 0.0, Fig(27.0,0.0,0.0,0.0, 257.31,0.0, -15.18,0.0, 314.9,-644.631126));
   Add(714, 'Belinda', 0.0, Fig(33.0,0.0,0.0,0.0, 257.31,0.0, -15.18,0.0, 297.46,-577.362817));
-  Add(715, 'Puck', 0.0, Fig(77.0,0.0,0.0,0.0, 257.31,0.0, -15.18,0.0, 91.24,-472.545069));
+  Add(715, 'Puck', 0.1275, Fig(77.0,0.0,0.0,0.0, 257.31,0.0, -15.18,0.0, 91.24,-472.545069));   // GM from URA182 (was 0/massless)
   Add(716, 'Caliban', 0.0);
   Add(717, 'Sycorax', 0.0);
   Add(718, 'Prospero', 0.0);
@@ -3954,7 +4170,7 @@ begin
   Add(902, 'Nix', 0.00304817564816976);
   Add(903, 'Hydra', 0.003211039206155255);
   Add(904, 'Kerberos', 0.001110040850536676);
-  Add(905, 'Styx', 0.0);
+  Add(905, 'Styx', 4.045391585487917e-05);   // GM from PLU060 (was 0/massless)
   Add(15, 'Libration angles', 0.0);
   Add(14, 'Nutation angles', 0.0);
   Add(16, 'TT-TDB', 0.0);
@@ -4715,6 +4931,23 @@ begin
   Add(20455502, '(455502) 2003 UZ413', 29.07918638862998);
   Add(2528381, '(528381) 2008 ST291', 9.570196405662998);
   Add(20528381, '(528381) 2008 ST291', 9.570196405662998);
+  // Triaxial shape overrides: stamp Rb/Rc onto the matching rows now that every body exists. Linear match per
+  // entry (55 x BCN, one-off) -- BodyConstIndex isn't used here as it would re-search the O(1) 0..10 path pointlessly.
+  for si:=Low(BODY_SHAPES) to High(BODY_SHAPES) do
+   for i:=0 to BCN-1 do
+    if BodyConstants[i].NAIFCode=BODY_SHAPES[si].Code then
+     begin BodyConstants[i].Rb:=BODY_SHAPES[si].Rb; BodyConstants[i].Rc:=BODY_SHAPES[si].Rc; Break; end;
+  // Atmosphere (drag) overrides -- same one-off linear match. Only the handful of bodies with an atmosphere; the
+  // rest keep Rho0=0 (no drag). Codes here are the planet/moon body codes (not barycenters), so no dual-code issue.
+  for si:=Low(BODY_ATMOSPHERES) to High(BODY_ATMOSPHERES) do
+   for i:=0 to BCN-1 do
+    if BodyConstants[i].NAIFCode=BODY_ATMOSPHERES[si].Code then
+     begin
+      BodyConstants[i].AtmRho0:=BODY_ATMOSPHERES[si].Rho0;
+      BodyConstants[i].AtmAlt0:=BODY_ATMOSPHERES[si].Alt0;
+      BodyConstants[i].AtmScaleH:=BODY_ATMOSPHERES[si].ScaleH;
+      Break;
+     end;
 end;
 
 function BodyConstIndex(NAIFCode: Int64): Int64;

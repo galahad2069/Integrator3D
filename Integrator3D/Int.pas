@@ -44,6 +44,7 @@ type
     CBprec1: TCheckBox;
     CBprec3: TCheckBox;
     SaveIntBtn: TButton;
+    CBprec4: TCheckBox;
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
     procedure AddBtnClick(Sender: TObject);
@@ -571,8 +572,9 @@ end;
 procedure TIntForm.LoadBtnClick(Sender: TObject);
 const
   MAGIC_STR:   UInt32 = $494E5453;   // 'INTS'
-  VERSION_STR: Int32  = 3;   // v3 drops the per-entry center: integrand states are SSB, so the display
-                             // centre is a view property assigned at load (= current FBarycenter). v1/v2 still load.
+  VERSION_STR: Int32  = 4;   // v4 grows TNonGrav by the trailing InvBC (drag) field. v3 dropped the per-entry
+                             // center (SSB states -> centre is a view property assigned at load). v1/v2/v3 still load.
+  NONGRAV_PREV4_SIZE = SizeOf(TNonGrav) - SizeOf(Double);   // pre-v4 TNonGrav = current record minus its trailing InvBC (byte-prefix)
 var
   Stream: TFileStream;
   i, n: Int64;
@@ -619,10 +621,15 @@ begin
      if (NameLen > 0) and (Stream.Read(NameBytes[0], NameLen) <> NameLen) then
       raise Exception.Create('Unexpected end of file at entry ' + IntToStr(i) + '.');
      TmpNames[i]:=TEncoding.UTF8.GetString(NameBytes);
-     FillChar(TmpNonGrav[i], SizeOf(TNonGrav), 0);           // v1 default: no Yarkovsky
+     FillChar(TmpNonGrav[i], SizeOf(TNonGrav), 0);           // v1 default: no Yarkovsky, InvBC=0 (no drag)
      TmpNonGrav[i].r0 := 1.0; TmpNonGrav[i].m := 2.0;        // standard g(r)
-     if Ver >= 2 then
-      if Stream.Read(TmpNonGrav[i], SizeOf(TNonGrav)) <> SizeOf(TNonGrav) then
+     if Ver >= 4 then
+      begin   // v4+: full record incl. the trailing InvBC (drag) field
+       if Stream.Read(TmpNonGrav[i], SizeOf(TNonGrav)) <> SizeOf(TNonGrav) then
+        raise Exception.Create('Unexpected end of file at entry ' + IntToStr(i) + '.');
+      end
+     else if Ver >= 2 then   // v2/v3: pre-drag TNonGrav (byte-prefix); InvBC stays 0 from the FillChar above
+      if Stream.Read(TmpNonGrav[i], NONGRAV_PREV4_SIZE) <> NONGRAV_PREV4_SIZE then
        raise Exception.Create('Unexpected end of file at entry ' + IntToStr(i) + '.');
     end;
    for i:=0 to n-1 do
@@ -637,7 +644,7 @@ end;
 procedure TIntForm.SaveBtnClick(Sender: TObject);
 const
   MAGIC_STR:   UInt32 = $494E5453;   // 'INTS'
-  VERSION_STR: Int32  = 3;   // v3 drops the per-entry center (SSB states -> centre is a view property)
+  VERSION_STR: Int32  = 4;   // v4 adds the trailing InvBC (drag) field to TNonGrav (see load for the format)
 var
   Stream: TMemoryStream;
   i, n: Int64;
@@ -672,7 +679,7 @@ procedure TIntForm.SaveIntBtnClick(Sender: TObject);
 // Save the CURRENT (live) state of the running integrations to a .icf, in the same v3 format as SaveBtnClick.
 const
   MAGIC_STR:   UInt32 = $494E5453;   // 'INTS'
-  VERSION_STR: Int32  = 3;
+  VERSION_STR: Int32  = 4;   // v4: TNonGrav carries the trailing InvBC (drag) field
 var
   Stream: TMemoryStream;
   i, n: Int64;
@@ -1028,10 +1035,12 @@ begin
    CBPrec1.Enabled:=(ModeBox.ItemIndex=INT_GAUSSRADAU15);
    CBPrec2.Enabled:=False;
    CBPrec3.Enabled:=(ModeBox.ItemIndex=INT_GAUSSRADAU15);
+   CBPrec4.Enabled:=(ModeBox.ItemIndex=INT_GAUSSRADAU15);
    CBprec0.Checked:=(ModeBox.ItemIndex=INT_DORMANDPRINCE54) or (ModeBox.ItemIndex=INT_DORMANDPRINCE87) or (ModeBox.ItemIndex=INT_GAUSSRADAU15);
    CBPrec1.Checked:=False;
    CBprec2.Checked:=(ModeBox.ItemIndex=INT_GAUSSRADAU15);
    CBPrec3.Checked:=False;
+   CBPrec4.Checked:=False;
   finally
    FPublicLock.Release;
   end;

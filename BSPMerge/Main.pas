@@ -20,6 +20,7 @@ type
     PopupMenu: TPopupMenu;
     PMAll: TMenuItem;
     PMNone: TMenuItem;
+    PMBig16: TMenuItem;
     Panel2: TPanel;
     OpenBtn: TButton;
     Panel3: TPanel;
@@ -43,6 +44,7 @@ type
     procedure StartBtnClick(Sender: TObject);
     procedure SaveDialogTypeChange(Sender: TObject);
     procedure PMSelectClick(Sender: TObject);
+    procedure PMBig16Click(Sender: TObject);
     procedure CheckListBoxClick(Sender: TObject);
     procedure FormResize(Sender: TObject);
     procedure Panel2Resize(Sender: TObject);
@@ -617,17 +619,23 @@ begin
 end;
 
 function ParsePCKBody(const txt: string; BodyID: Int64;
-  out Req, PoleRA, PoleRARate, PoleDec, PoleDecRate, PoleW, PoleWRate: Double): Boolean;
-// A body's figure + orientation from an already-loaded SPICE text PCK: BODY<id>_RADII (equatorial radius =
-// first value, km), _POLE_RA / _POLE_DEC (deg + deg/century rate), _PM (deg + deg/DAY rate). Only the linear
-// terms are taken (nutation/precession trig series are ignored). True if the PCK carries anything for BodyID.
+  out Req, Rb, Rc, PoleRA, PoleRARate, PoleDec, PoleDecRate, PoleW, PoleWRate: Double): Boolean;
+// A body's figure + orientation from an already-loaded SPICE text PCK: BODY<id>_RADII (triaxial radii a,b,c km;
+// Req=a, and Rb=b/Rc=c left 0 for a sphere), _POLE_RA / _POLE_DEC (deg + deg/century rate), _PM (deg + deg/DAY
+// rate). Only the linear terms are taken (nutation/precession trig series are ignored). True if the PCK carries
+// anything for BodyID.
 var pre: string; a: TArray<Double>; fmt: TFormatSettings;
 begin
-  Req:=0; PoleRA:=0; PoleRARate:=0; PoleDec:=0; PoleDecRate:=0; PoleW:=0; PoleWRate:=0;
+  Req:=0; Rb:=0; Rc:=0; PoleRA:=0; PoleRARate:=0; PoleDec:=0; PoleDecRate:=0; PoleW:=0; PoleWRate:=0;
   Result := False;
   fmt := TFormatSettings.Invariant;
   pre := 'BODY'+IntToStr(BodyID)+'_';
-  a := PCKNums(txt, pre+'RADII', fmt);    if Length(a)>=1 then begin Req:=a[0]; Result:=True; end;
+  a := PCKNums(txt, pre+'RADII', fmt);
+  if Length(a)>=1 then
+   begin
+    Req:=a[0]; Result:=True;
+    if (Length(a)>=3) and ((a[1]<>a[0]) or (a[2]<>a[0])) then begin Rb:=a[1]; Rc:=a[2]; end;   // non-spherical: keep b,c (oblate a=b=/=c passes via the c test); a sphere stays Rb=Rc=0
+   end;
   a := PCKNums(txt, pre+'POLE_RA', fmt);  if Length(a)>=1 then begin PoleRA:=a[0];  if Length(a)>=2 then PoleRARate:=a[1];  Result:=True; end;
   a := PCKNums(txt, pre+'POLE_DEC', fmt); if Length(a)>=1 then begin PoleDec:=a[0]; if Length(a)>=2 then PoleDecRate:=a[1]; end;
   a := PCKNums(txt, pre+'PM', fmt);       if Length(a)>=1 then begin PoleW:=a[0];   if Length(a)>=2 then PoleWRate:=a[1];   end;
@@ -1130,6 +1138,43 @@ begin
   CheckCoverage;
 end;
 
+procedure TMainForm.PMBig16Click(Sender: TObject);
+// Curate the ASTEROID selection to exactly the SB441-N16 perturber set -- JPL's 16 asteroids used for routine
+// small-body propagation (the '{source: SB441-N16}' seen in Horizons small-body headers). Checks those 16, unchecks
+// every other main-belt asteroid, and leaves the Sun, planets, satellites and KBOs untouched so it composes with the
+// rest of the selection. The minor-planet number is recovered from the SPK id under BOTH conventions (2000001- and
+// 20000001-), matching how Classify() in the mass filter identifies asteroids.
+const
+  BIG16: array[0..15] of Int64 =                                 // (1)Ceres (2)Pallas (3)Juno (4)Vesta (6)Hebe (7)Iris
+    (1, 2, 3, 4, 6, 7, 10, 15, 16, 31, 48, 52, 65, 88, 511, 704); // (10)Hygiea (15)Eunomia (16)Psyche (31)Euphrosyne
+var                                                               // (48)Doris (52)Europa (65)Cybele (88)Thisbe
+  i, j, tID, num: Int64;                                         // (511)Davida (704)Interamnia
+  s: string;
+  isN16: Boolean;
+  function ExtractTID(out v: Int64): Boolean;   // first integer after '] (' in s -- the target SPK id (mirrors ExtractInt)
+  var a, b: Integer;
+  begin
+    a := Pos('] (', s); if a=0 then begin Result:=False; Exit; end;
+    a := a + 3; b := a; v := 0;
+    while (b<=Length(s)) and (s[b]>='0') and (s[b]<='9') do begin v := v*10 + (Ord(s[b])-Ord('0')); Inc(b); end;
+    Result := b>a;
+  end;
+begin
+  for i:=0 to CheckListBox.Items.Count-1 do
+   begin
+    s := FTargets[i];
+    if not ExtractTID(tID) then Continue;
+    if      (tID>=2000001)  and (tID<=2999999)  then num := tID-2000000
+    else if (tID>=20000001) and (tID<=20999999) then num := tID-20000000
+    else Continue;                             // not a numbered minor planet -> leave as-is (Sun/planet/satellite)
+    if num>=KBO_NUMBER_MIN then Continue;       // KBO/TNO -> leave as-is; this preset only curates asteroids
+    isN16 := False;
+    for j:=0 to High(BIG16) do if num=BIG16[j] then begin isN16:=True; Break; end;
+    CheckListBox.Checked[i] := isN16;
+   end;
+  CheckCoverage;
+end;
+
 procedure TMainForm.LoadBSPFiles(const Paths: array of string);
 // Add each .bsp in Paths (in the given order -- callers pass them pre-ordered) to the target list. Files already
 // loaded, or that fail to open, are reported to the Memo and skipped. Shared by OpenBtnClick and the downloader.
@@ -1276,7 +1321,7 @@ var
   hAU, hCL, hBETA, hGAMMA, hASUN, hJ2S, hJ3S, hJ4S, hRE, hJ2E, hJ3E, hJ4E: Double;   // Stage B: DE header overrides
   sReq, sJ2, sJ3, sJ4, sRA, sDec: Double;                                            // Stage C: satellite figure override
   pckPath, pckTxt: string;                                                           // Stage D: SPICE PCK (radii + pole + rotation)
-  pReq, pRA, pRArate, pDec, pDecRate, pW, pWrate: Double;
+  pReq, pRb, pRc, pRA, pRArate, pDec, pDecRate, pW, pWrate: Double;
   // heliocentric -> SSB re-centring of Sun-descendant (CenterID=10) bodies:
   SunNumCoef, SunN, SunRecBytes, SunRefID: Int64;   // SunRefID: the Sun source's SPICE frame -- must match each body we add it to
   SunInit, SunInvIntlen: Double; SunBase: PByte; SunAvail: Boolean;
@@ -1877,10 +1922,12 @@ begin
         begin
          pckTxt := PCKDataOnly(pckPath);   // data sections only -- ignore commented "Old values" assignments
          for i:=0 to NumTargets-1 do
-          if ParsePCKBody(pckTxt, BSPXDesc[i].TargetID, pReq,pRA,pRArate,pDec,pDecRate,pW,pWrate) then
+          if ParsePCKBody(pckTxt, BSPXDesc[i].TargetID, pReq,pRb,pRc,pRA,pRArate,pDec,pDecRate,pW,pWrate) then
            begin
             if BSPXCnst[i].Req=0.0 then   // uncovered body (moon/dwarf): take radius + J2000 pole from the PCK
              begin BSPXCnst[i].Req:=pReq; BSPXCnst[i].PoleRA:=pRA; BSPXCnst[i].PoleDec:=pDec; end;
+            if (pRb>0.0) and (pRc>0.0) then   // triaxial shape: the PCK is the canonical RADII source, so it wins over the table seed (Req stays DE-consistent for the J2 term)
+             begin BSPXCnst[i].Rb:=pRb; BSPXCnst[i].Rc:=pRc; end;
             BSPXCnst[i].PoleRARate:=pRArate; BSPXCnst[i].PoleDecRate:=pDecRate;   // rates + spin always from the PCK
             BSPXCnst[i].PoleW:=pW; BSPXCnst[i].PoleWRate:=pWrate;
            end;

@@ -318,6 +318,25 @@ object IntForm: TIntForm
       ShowHint = True
       TabOrder = 5
     end
+    object CBprec4: TCheckBox
+      AlignWithMargins = True
+      Left = 8
+      Top = 279
+      Width = 280
+      Height = 17
+      Hint = 'Orbital decay due to atmospheric drag'
+      Margins.Left = 6
+      Margins.Top = 2
+      Margins.Bottom = 0
+      Align = alTop
+      Caption = 'Atmospheric drag'
+      Enabled = False
+      ParentShowHint = False
+      ShowHint = True
+      TabOrder = 6
+      ExplicitLeft = 9
+      ExplicitTop = 283
+    end
   end
   object OpenDialog: TOpenDialog
     Filter = 'Integrator3D Initial Conditions file (*.icf)|*.icf'

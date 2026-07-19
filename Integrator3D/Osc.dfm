@@ -58,6 +58,7 @@ object OscForm: TOscForm
     ShowHint = True
     TabOrder = 1
     TextHint = '<select center>'
+    OnChange = CenterBoxChange
     OnDrawItem = ComboDrawItem
     Items.Strings = (
       'Solar System BC')

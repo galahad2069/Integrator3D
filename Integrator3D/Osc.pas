@@ -92,13 +92,18 @@ type
     procedure HeaderMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
     procedure HeaderMouseUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
     procedure ComboChange(Sender: TObject);
+    procedure CenterBoxChange(Sender: TObject);
   private
     FSnapshot: TState4DArray;
+    FIntSnapshot: TState4DArray;   // integrand states, captured TOGETHER with FSnapshot under PublicLock so the
+                                   // perturber snapshot and the integrand are always from the SAME integration step
     FRefreshTimer: TTimer;
     FCount, FIndex: Int64;
     FBSPXCount: Int64;
     FElements: array[0..1] of TElements;
+    FCenterMatrix: TMat4D;   // ICRF -> current centre's equatorial frame; rebuilt by UpdateCenterFrame on a centre change
     procedure TimerTick(Sender: TObject);
+    procedure UpdateCenterFrame;   // add/remove the "Orbit-centre Equatorial" frame option per the centre's pole, and cache its matrix
   public
     procedure Refresh;
   end;
@@ -171,8 +176,52 @@ begin
   FRefreshTimer.OnTimer:=TimerTick;
   FRefreshTimer.Enabled:=True;
   TargetBox.OnChange:=ComboChange;
-  CenterBox.OnChange:=ComboChange;
+  CenterBox.OnChange:=CenterBoxChange;   // a centre change resets the average AND re-scopes the equatorial frame option
   FrameBox.OnChange :=ComboChange;
+  FCenterMatrix := GetIdentityMat4D;
+  UpdateCenterFrame;   // scope "Orbit-centre Equatorial" to the initial centre (drops it if that centre has no pole)
+end;
+
+procedure TOscForm.CenterBoxChange(Sender: TObject);
+begin
+  ComboChange(Sender);    // centre changed -> the running average is no longer meaningful
+  UpdateCenterFrame;
+end;
+
+// Add or remove the "Orbit-centre Equatorial" frame option to match the selected centre: it exists only when that
+// body has a pole on file, and its ICRF->equator matrix is cached in FCenterMatrix (Refresh applies it, no per-frame
+// rebuild). Dropping the option while it is selected falls the frame back to ICRF first.
+procedure TOscForm.UpdateCenterFrame;
+const
+  FRAME_EQ = 'Orbit-centre Equatorial';
+var
+  CenterID, di, ix: Int64;
+  pRA, pDec: Double;
+  hasPole: Boolean;
+begin
+  hasPole := False;
+  if CenterBox.ItemIndex >= 0 then
+   begin
+    CenterID := Int64(Pointer(CenterBox.Items.Objects[CenterBox.ItemIndex]));
+    di := MainForm.BSPXFile.FindDesc(CenterID);
+    if di >= 0 then
+     begin
+      pRA  := MainForm.BSPXFile.BodyConst[di]^.PoleRA;
+      pDec := MainForm.BSPXFile.BodyConst[di]^.PoleDec;
+      hasPole := (pRA <> 0.0) or (pDec <> 0.0);   // (0,0) = no pole on file for this body
+      if hasPole then FCenterMatrix := PoleEquatorMatrix(pRA, pDec);
+     end;
+   end;
+  ix := FrameBox.Items.IndexOf(FRAME_EQ);
+  if hasPole then
+   begin
+    if ix < 0 then FrameBox.Items.Add(FRAME_EQ);   // append (becomes index 2)
+   end
+  else if ix >= 0 then
+   begin
+    if FrameBox.ItemIndex = ix then FrameBox.ItemIndex := 0;   // fall back to ICRF before dropping the option
+    FrameBox.Items.Delete(ix);
+   end;
 end;
 
 procedure TOscForm.ComboChange(Sender: TObject);
@@ -292,18 +341,13 @@ begin
   S := Default(TState4D);
   if TargetID < 0 then
    begin
-    // Integration body: state is already barycentric; subtract center's chain.
-    // The render thread mutates IntegrationS[].R/.V in place during integration,
-    // so grab this body's (R,V) atomically under PublicLock to avoid a torn read.
+    // Integration body: state is already barycentric; subtract center's chain. Read from FIntSnapshot, captured
+    // TOGETHER with FSnapshot under PublicLock (see TimerTick), so the integrand and the perturber centre it is
+    // differenced against are from the SAME integration step -- no cross-step composite, no torn read.
     bodyIdx := -TargetID - 1;
-    IntForm.PublicLock.Acquire;
-    try
-     if bodyIdx >= Length(IntForm.IntegrationS) then Exit;  // finally still releases
-     S.R := IntForm.IntegrationS[bodyIdx].R;
-     S.V := IntForm.IntegrationS[bodyIdx].V;
-    finally
-     IntForm.PublicLock.Release;
-    end;
+    if bodyIdx >= Length(FIntSnapshot) then Exit;
+    S.R := FIntSnapshot[bodyIdx].R;
+    S.V := FIntSnapshot[bodyIdx].V;
     // Center ancestor chain (BSPXFile.Desc is static — no lock needed).
     CLen := 0; CAnc[0] := CenterID;
     while CLen < 7 do
@@ -369,12 +413,17 @@ begin
     S.GM := GetCorrectedGM(GM_c, GM_t, CenterID <= 9);
    end;
 
-  // Reference frame: ICRF (index 0) needs no rotation; Ecliptic (index 1) does
-  if FrameBox.ItemIndex = 1 then
-   begin
-    S.R := S.R * MainForm.EpsMatrix;
-    S.V := S.V * MainForm.EpsMatrix;
-   end;
+  // Reference frame: ICRF (index 0) needs no rotation; Ecliptic (1) and orbit-centre equatorial (2) do.
+  case FrameBox.ItemIndex of
+    1: begin   // J2000 ecliptic: single Rx(CEPS) about the equinox, precomputed once
+         S.R := S.R * MainForm.EpsMatrix;
+         S.V := S.V * MainForm.EpsMatrix;
+       end;
+    2: begin   // orbit-centre equatorial: ICRF -> centre-equator matrix cached by UpdateCenterFrame (index 2 exists
+         S.R := S.R * FCenterMatrix;   // only while the centre has a pole, so FCenterMatrix is always valid here)
+         S.V := S.V * FCenterMatrix;
+       end;
+  end;
 
   Osculate(@S);
 
@@ -577,7 +626,21 @@ begin
   // Any Items mutation can reset ItemIndex — restore unconditionally
   if TargetBox.ItemIndex <> sel then TargetBox.ItemIndex := sel;
 
-  MainForm.TakeSnapshot(FSnapshot);
+  // Capture the perturber states AND the integrand states as ONE coherent set, under PublicLock. The render thread
+  // holds PublicLock for the entire AdvanceScene frame (TRenderThread.Execute), so while we hold it the integration
+  // is never mid-step -- FSnapshotBuf and IntegrationS are guaranteed to be from the same accepted step. Grabbing
+  // them separately under two different locks (the old bug) let a frame slip between the two reads, differencing a
+  // fresh integrand against a stale centre; at fast time that is the centre's whole heliocentric motion (~30 km/s x
+  // frame delta), which is what flashed absurd osculating elements for a single refresh.
+  IntForm.PublicLock.Acquire;
+  try
+   MainForm.TakeSnapshot(FSnapshot);   // PublicLock -> FStateLock: same lock order the render thread uses, no deadlock
+   SetLength(FIntSnapshot, Length(IntForm.IntegrationS));
+   if Length(FIntSnapshot) > 0 then
+    Move(IntForm.IntegrationS[0], FIntSnapshot[0], Length(FIntSnapshot)*SizeOf(TState4D));
+  finally
+   IntForm.PublicLock.Release;
+  end;
   Refresh;
 end;
 

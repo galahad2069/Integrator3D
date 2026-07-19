@@ -52,6 +52,7 @@ type
    class operator Multiply(const Left: TVec4D; const Right: TMat4D): TVec4D; inline;  // transform                   - uses sorted sum (the functions don't)!!! - WIP
    class operator Multiply(const Left: TMat4D; const Right: TVec4D): TVec4D; inline;  // transform                   - uses sorted sum (the functions don't)!!! - WIP
    procedure FromQuat(Q: PVec4D); inline;                                             // create from quaternion      - same as the standalone function but they don't agree with the asm functions
+   function Transpose: TMat4D; inline;                                                // matrix transpose (swap rows/cols); for a pure rotation this is its inverse
    case Integer of
    0: (X, Y, Z, W: TVec4D);
    1: (V: array[0..3] of TVec4D);
@@ -2117,6 +2118,16 @@ begin
   Result.Y := Right.X * Left.cf01 + Right.Y * Left.cf11 + Right.Z * Left.cf21 + Right.W * Left.cf31;
   Result.Z := Right.X * Left.cf02 + Right.Y * Left.cf12 + Right.Z * Left.cf22 + Right.W * Left.cf32;
   Result.W := Right.X * Left.cf03 + Right.Y * Left.cf13 + Right.Z * Left.cf23 + Right.W * Left.cf33;
+end;
+
+function TMat4D.Transpose: TMat4D;
+// Swap across the main diagonal: Result[i][j] = Self[j][i]. For an orthonormal (pure-rotation) matrix this is the
+// inverse, so `v*M` and `v*M.Transpose` are opposite rotations -- used to invert a frame transform without a solve.
+begin
+  Result.cf00 := cf00;  Result.cf01 := cf10;  Result.cf02 := cf20;  Result.cf03 := cf30;
+  Result.cf10 := cf01;  Result.cf11 := cf11;  Result.cf12 := cf21;  Result.cf13 := cf31;
+  Result.cf20 := cf02;  Result.cf21 := cf12;  Result.cf22 := cf22;  Result.cf23 := cf32;
+  Result.cf30 := cf03;  Result.cf31 := cf13;  Result.cf32 := cf23;  Result.cf33 := cf33;
 end;
 
 {procedure TMat4D.FromQuat(Q: PVec4D);

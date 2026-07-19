@@ -164,6 +164,12 @@ type
     Unit_SA1: TButton;
     Unit_SA2: TButton;
     Unit_SA3: TButton;
+    Value_BC: TEdit;
+    Name_BC: TPanel;
+    Unit_BC: TButton;
+    Value_SBC: TPanel;
+    Name_SBC: TPanel;
+    Unit_SBC: TButton;
     procedure FormCreate(Sender: TObject);
     procedure UnitClick_Dist(Sender: TObject);
     procedure UnitClick_Angle(Sender: TObject);
@@ -183,11 +189,14 @@ type
     procedure Unit_EpochClick(Sender: TObject);
     procedure Value_EpochDblClick(Sender: TObject);
     procedure TargetEditChange(Sender: TObject);
+    procedure CenterBoxChange(Sender: TObject);
   private
     FElements: TElements;
     FState: TState4D;
-    FNonGrav: TNonGrav;
+    FNonGrav: TNonGrav;   // includes InvBC (drag term); populated by CompBtnClick_Geometric, consumed by StartBtnClick
     FBaseCaption: string;   // design-time caption, so the Horizons fetch can append/clear a transient status line
+    FCenterMatrix: TMat4D;   // input rotation for the "Orbit-centre Equatorial" frame: centre-equatorial -> ICRF (= PoleEquatorMatrix.Transpose); cached by UpdateCenterFrame
+    procedure UpdateCenterFrame;   // add/remove the "Orbit-centre Equatorial" frame option per the centre's pole, and cache its matrix
     procedure ResetValues;
     procedure DisplayEpoch(Panel: TPanel; ValueIndex, Tag: Int64);
     procedure DisplayDist(Panel: TPanel; ValueIndex, Tag: Int64);
@@ -212,12 +221,17 @@ uses Main, Vcl.Themes, Int, System.Net.HttpClient, System.Net.URLClient, System.
 
 {$R *.dfm}
 
+// The Get* parsers share one Vec.pas-internal convention: any unusable input -> NaN. That folds three cases into
+// one sentinel -- blank/garbage (StrToFloat raises), the literal 'INF'/'-INF' (StrToFloat returns +/-Inf, caught
+// here), and 'NaN' (StrToFloat already returns NaN). Callers test the result with IsNan, NOT IsInfinite. Confined
+// to Vec.pas -- nothing non-finite leaves here (StartBtn only fires after a valid Comp).
 function GetNum(const S: string): Double;
 begin
   try
    Result:=StrToFloat(S);
+   if IsInfinite(Result) then Result:=NaN;
   except
-   Result:=NINF;
+   Result:=NaN;
   end;
 end;
 
@@ -229,8 +243,9 @@ begin
     1: Result:=(StrToFloat(S)-STANDARD_EPOCH)*DAY2SEC;
     else Result:=StrBSPXTime(S);   // Gregorian '[-]YYYY-MM-DD[.frac]' (CAPS_EPOCH[2]) -> ET; inverse of BSPXTimeStr
    end;
+   if IsInfinite(Result) then Result:=NaN;
   except
-   Result:=NINF;
+   Result:=NaN;
   end;
 end;
 
@@ -241,8 +256,9 @@ begin
     1: Result:=StrToFloat(S)*AU2KM;
     else Result:=StrToFloat(S);
    end;
+   if IsInfinite(Result) then Result:=NaN;
   except
-   Result:=NINF;
+   Result:=NaN;
   end;
 end;
 
@@ -254,8 +270,9 @@ begin
     2: Result:=StrToFloat(S)*AUPTAU2KMPS;
     else Result:=StrToFloat(S);
    end;
+   if IsInfinite(Result) then Result:=NaN;
   except
-   Result:=NINF;
+   Result:=NaN;
   end;
 end;
 
@@ -266,8 +283,9 @@ begin
     1: Result:=DegToRad(StrToFloat(S));
     else Result:=StrToFloat(S);
    end;
+   if IsInfinite(Result) then Result:=NaN;
   except
-   Result:=NINF;
+   Result:=NaN;
   end;
 end;
 
@@ -283,8 +301,9 @@ begin
     5: Result:=DegToRad(StrToFloat(S))*DAY2SEC;
     else Result:=StrToFloat(S);
    end;
+   if IsInfinite(Result) then Result:=NaN;
   except
-   Result:=NINF;
+   Result:=NaN;
   end;
 end;
 
@@ -301,14 +320,16 @@ begin
     6: Result:=StrToFloat(S)*YEAR2SEC;
     else Result:=StrToFloat(S);
    end;
+   if IsInfinite(Result) then Result:=NaN;
   except
-   Result:=NINF;
+   Result:=NaN;
   end;
 end;
 
 procedure TVecForm.FormCreate(Sender: TObject);
 begin
   FBaseCaption := Caption;   // captured once; the Horizons fetch appends a status suffix to this and clears back to it
+  FCenterMatrix := GetIdentityMat4D;   // valid placeholder until a pole-bearing centre is selected (UpdateCenterFrame)
   Unit_SRX.LinkedPanel   :=Value_SRX;    Unit_SRX.LinkedIndex   :=0;
   Unit_SRY.LinkedPanel   :=Value_SRY;    Unit_SRY.LinkedIndex   :=1;
   Unit_SRZ.LinkedPanel   :=Value_SRZ;    Unit_SRZ.LinkedIndex   :=2;
@@ -316,6 +337,7 @@ begin
   Unit_SVY.LinkedPanel   :=Value_SVY;    Unit_SVY.LinkedIndex   :=5;
   Unit_SVZ.LinkedPanel   :=Value_SVZ;    Unit_SVZ.LinkedIndex   :=6;
   Unit_SEpoch.LinkedPanel:=Value_SEpoch; Unit_SEpoch.LinkedIndex:=8;
+  //Unit_SBC.LinkedPanel:=Value_SBC;       Unit_SBC.LinkedIndex   :=9;
 
   Unit_SEpoch.Caption := CAPS_EPOCH[Unit_SEpoch.Tag]; Unit_SEpoch.Hint := HINTS_EPOCH[Unit_SEpoch.Tag];
   Unit_SRX.Caption    := CAPS_DIST[Unit_SRX.Tag    ]; Unit_SRX.Hint    := HINTS_DIST[Unit_SRX.Tag    ];
@@ -324,6 +346,7 @@ begin
   Unit_SVX.Caption    := CAPS_SPEED[Unit_SVX.Tag   ]; Unit_SVX.Hint    := HINTS_SPEED[Unit_SVX.Tag   ];
   Unit_SVY.Caption    := CAPS_SPEED[Unit_SVY.Tag   ]; Unit_SVY.Hint    := HINTS_SPEED[Unit_SVY.Tag   ];
   Unit_SVZ.Caption    := CAPS_SPEED[Unit_SVZ.Tag   ]; Unit_SVZ.Hint    := HINTS_SPEED[Unit_SVZ.Tag   ];
+  Unit_SBC.Caption    := CAPS_IBC[Unit_SBC.Tag     ]; Unit_SBC.Hint    := HINTS_IBC[Unit_SBC.Tag     ];
   Unit_RX.Caption     := CAPS_DIST[Unit_RX.Tag     ]; Unit_RX.Hint     := HINTS_DIST[Unit_RX.Tag     ];
   Unit_RY.Caption     := CAPS_DIST[Unit_RY.Tag     ]; Unit_RY.Hint     := HINTS_DIST[Unit_RY.Tag     ];
   Unit_RZ.Caption     := CAPS_DIST[Unit_RZ.Tag     ]; Unit_RZ.Hint     := HINTS_DIST[Unit_RZ.Tag     ];
@@ -341,6 +364,7 @@ begin
   Unit_Period.Caption := CAPS_TIME[Unit_Period.Tag ]; Unit_Period.Hint := HINTS_TIME[Unit_Period.Tag ];
   Unit_TPP.Caption    := CAPS_EPOCH[Unit_TPP.Tag   ]; Unit_TPP.Hint    := HINTS_EPOCH[Unit_TPP.Tag   ];
   Unit_Epoch.Caption  := CAPS_EPOCH[Unit_Epoch.Tag ]; Unit_Epoch.Hint  := HINTS_EPOCH[Unit_Epoch.Tag ];
+  Unit_BC.Caption     := CAPS_BC[Unit_BC.Tag       ]; Unit_BC.Hint     := HINTS_BC[Unit_BC.Tag       ];
 end;
 
 procedure TVecForm.ShowBlank;
@@ -356,22 +380,31 @@ end;
 procedure TVecForm.StartBtnClick(Sender: TObject);
 var
   NG: TNonGrav;
+  hasComet: Boolean;
 begin
-  NG := FNonGrav;   // blank TEdits arrive as Infinity (GetNum sentinel)
-  if (not IsInfinite(NG.A1)) or (not IsInfinite(NG.A2)) or (not IsInfinite(NG.A3)) then
+  NG := FNonGrav;             // carries the drag term (NG.InvBC) too; blank TEdits arrive as NaN (GetNum sentinel)
+  hasComet := (not IsNan(NG.A1)) or (not IsNan(NG.A2)) or (not IsNan(NG.A3));
+  if hasComet then
    begin
     // At least one coefficient was entered -> a valid nongrav model. Zero the blanks, apply the standard
-    // asteroid g(r) (r0 = 1 au, m = 2), enable it, and attach it to the integration.
-    if IsInfinite(NG.A1) then NG.A1 := 0.0;
-    if IsInfinite(NG.A2) then NG.A2 := 0.0;
-    if IsInfinite(NG.A3) then NG.A3 := 0.0;
+    // asteroid g(r) (r0 = 1 au, m = 2), enable it.
+    if IsNan(NG.A1) then NG.A1 := 0.0;
+    if IsNan(NG.A2) then NG.A2 := 0.0;
+    if IsNan(NG.A3) then NG.A3 := 0.0;
     NG.r0 := 1.0;  NG.m := 2.0;  NG.Active := True;
-    // FState is SSB (Value_SCenter.Tag=0 drove the translation); the center recorded for the integrand
-    // is the *authoring view* (FBarycenter at add time), which anchors its osculating-orbit display.
-    IntForm.AddIntegration(TargetEdit.Text, FState, MainForm.Barycenter, NG);
    end
   else
-   IntForm.AddIntegration(TargetEdit.Text, FState, MainForm.Barycenter);   // no coefficients -> plain add
+   begin   // no comet term -> zero the blank coefficients (drag, if any, still rides along via NG.InvBC)
+    NG.A1 := 0.0;  NG.A2 := 0.0;  NG.A3 := 0.0;
+    NG.r0 := 1.0;  NG.m := 2.0;  NG.Active := False;
+   end;
+  // FState is SSB (Value_SCenter.Tag=0 drove the translation); the center recorded for the integrand is the
+  // *authoring view* (FBarycenter at add time), which anchors its osculating-orbit display. Attach an NG record
+  // whenever there is a comet term OR a drag term; otherwise a plain (NG-less) add.
+  if hasComet or (NG.InvBC > 0.0) then
+   IntForm.AddIntegration(TargetEdit.Text, FState, MainForm.Barycenter, NG)
+  else
+   IntForm.AddIntegration(TargetEdit.Text, FState, MainForm.Barycenter);
 end;
 
 procedure TVecForm.Init;
@@ -401,11 +434,12 @@ begin
   for i:=0 to Panel_IValues.ControlCount-1 do if Panel_IValues.Controls[i] is TEdit then TEdit(Panel_IValues.Controls[i]).Text:='';
   // only the Value_S* output fields -- the column headers (Panel25 'Value:') and separators are panels too
   for i:=0 to Panel_OValues.ControlCount-1 do if (Panel_OValues.Controls[i] is TPanel) and (Copy(Panel_OValues.Controls[i].Name, 1, 6)='Value_') then TPanel(Panel_OValues.Controls[i]).Caption:='N/A';
+  FNonGrav.InvBC:=0.0;   // no drag until CompBtnClick_Geometric reads Value_BC (defensive: keep a stale term from leaking)
   FillChar(FElements, SizeOF(TElements), 0);
   FillChar(FState, SizeOf(TState4D), 0);
-  for i:=0 to 2 do begin FState.R.cf[i]:=PINF; FState.V.cf[i]:=PINF; end; FState.Epoch:=PINF;
-  FState.R.W:=1.0; FState.Epoch:=PINF;
-  for i:=Low(FElements.cf) to High(FElements.cf) do FElements.cf[i]:=PINF;
+  for i:=0 to 2 do begin FState.R.cf[i]:=NaN; FState.V.cf[i]:=NaN; end; FState.Epoch:=NaN;   // "not computed" sentinel (NaN convention; DisplayState tests IsNan)
+  FState.R.W:=1.0;
+  for i:=Low(FElements.cf) to High(FElements.cf) do FElements.cf[i]:=NaN;
 end;
 
 procedure TVecForm.DisplayEpoch(Panel: TPanel; ValueIndex, Tag: Int64);
@@ -413,7 +447,7 @@ var
   Value: Double;
 begin
   Value:=FState.Num[ValueIndex];
-  if IsInfinite(Value) then Panel.Caption:='N/A' else
+  if IsNan(Value) then Panel.Caption:='N/A' else
   case Tag of
    1: Panel.Caption:=Format('%17.9f', [Value*SEC2DAY + STANDARD_EPOCH]);
    2: Panel.Caption:=Format('%s', [BSPXTimeStr(Value, 5)]);
@@ -426,7 +460,7 @@ var
   Value: Double;
 begin
   Value:=FState.Num[ValueIndex];
-  if IsInfinite(Value) then Panel.Caption:='N/A' else
+  if IsNan(Value) then Panel.Caption:='N/A' else
   case Tag of
    1: Panel.Caption:=Format('%17.9f', [Value * KM2AU]);
    else Panel.Caption:=Format('%17.9f', [Value]);
@@ -438,7 +472,7 @@ var
   Value: Double;
 begin
   Value:=FState.Num[ValueIndex];
-  if IsInfinite(Value) then Panel.Caption:='N/A' else
+  if IsNan(Value) then Panel.Caption:='N/A' else
   case Tag of
    1: Panel.Caption:=Format('%17.9f', [Value*KMPS2AUPDAY]);
    2: Panel.Caption:=Format('%17.9f', [Value*KMPS2AUPTAU]);
@@ -446,12 +480,13 @@ begin
   end;
 end;
 
+
 procedure TVecForm.DisplayNonGrav;
   // Signed fixed-width scientific ('+'/'-'/' ' sign slot + 7-digit mantissa + 3-digit exponent) so
   // A1..A3 stay column-aligned whatever their signs. e.g. ' 0.0000000E+000', '-2.9017667E-014'.
   function FmtA(x: Double): string;
   begin
-    if IsInfinite(x) then begin Result := 'N/A'; Exit; end;
+    if IsNan(x) then begin Result := 'N/A'; Exit; end;
     if x > 0 then Result := '+' else if x < 0 then Result := '-' else Result := ' ';
     Result := Result + FormatFloat('0.0000000E+000', Abs(x));
   end;
@@ -459,6 +494,7 @@ begin
   Value_SA1.Caption := FmtA(FNonGrav.A1);
   Value_SA2.Caption := FmtA(FNonGrav.A2);
   Value_SA3.Caption := FmtA(FNonGrav.A3);
+  Value_SBC.Caption := FmtA(FNonGrav.InvBC);
 end;
 
 procedure TVecForm.DisplayState;
@@ -507,7 +543,7 @@ var
   St, Sc: TState4D;
   M: TMat4D;
   El: TElements;
-  a, P, GM, slr, nu, r, EA, MM, dt, S_disc, sGMp: Double;
+  a, P, GM, slr, nu, r, EA, MM, dt, S_disc, sGMp, BC: Double;
   b: Boolean;
 begin
   try
@@ -517,7 +553,7 @@ begin
    if (centerID >= 0) and (centerID <= High(MainForm.BSPXFile.Hdr.GM)) then GM:=MainForm.BSPXFile.Hdr.GM[centerID]   // 0..10 (barycentre/Sun): direct header-array read
    else GM:=MainForm.BSPXFile.GetPerturberGM(centerID);
    St.Epoch:=GetEpoch(Value_Epoch.Text, Unit_Epoch.Tag);
-   if IsInfinite(St.Epoch) then raise Exception.Create('Invalid value: Epoch');
+   if IsNan(St.Epoch) then raise Exception.Create('Invalid value: Epoch');
    if (St.Epoch<MainForm.BSPXFile.Hdr.Epoch0) or (St.Epoch>MainForm.BSPXFile.Hdr.Epoch1) then
     raise Exception.Create(Format('Epoch out of the time coverage of the active .bspx file.%sValid interval = [ %s - %s ]', [BSPXTimeStr(MainForm.BSPXFile.Hdr.Epoch0, 3), BSPXTimeStr(MainForm.BSPXFile.Hdr.Epoch1, 3)]));
 
@@ -534,49 +570,52 @@ begin
    FNonGrav.A1:=GetNum(Value_A1.Text);
    FNonGrav.A2:=GetNum(Value_A2.Text);
    FNonGrav.A3:=GetNum(Value_A3.Text);
-   FNonGrav.r0:=PINF;
-   FNonGrav.m:=PINF;
+   FNonGrav.r0:=NaN;   // placeholder; StartBtnClick always overwrites r0/m with the standard g(r) (1.0/2.0)
+   FNonGrav.m:=NaN;
    FNonGrav.Active:=False;
+
+   BC:=GetNum(Value_BC.Text);
+   if IsNan(BC) or (BC<=0.0) then FNonGrav.InvBC:=0.0 else FNonGrav.InvBC:=1e-6/BC;   // blank/NaN or BC<=0 -> no drag (guards against +Inf and negative InvBC)
 
    b:=False; i:=8;
    while (i>0) and not b do
     begin
      i:=i-1;
-     b:=IsInfinite(St.Num[i]);
+     b:=IsNan(St.Num[i]);
     end;
    if b then
     begin
      // try and compute vectors from geometric elements
      El.e:=GetNum(Value_e.Text);
-     if IsInfinite(El.e) or (El.e<0.0) then raise Exception.Create('Invalid value: e');
+     if IsNan(El.e) or (El.e<0.0) then raise Exception.Create('Invalid value: e');
      El.Peri:=GetAngle(Value_Peri.Text, Unit_Peri.Tag);
-     if IsInfinite(El.Peri) then raise Exception.Create('Invalid value: Peri');
+     if IsNan(El.Peri) then raise Exception.Create('Invalid value: Peri');
      El.Node:=GetAngle(Value_Node.Text, Unit_Node.Tag);
-     if IsInfinite(El.Node) then raise Exception.Create('Invalid value: Node');
+     if IsNan(El.Node) then raise Exception.Create('Invalid value: Node');
      El.Incl:=GetAngle(Value_Incl.Text, Unit_Incl.Tag);
-     if IsInfinite(El.Incl) then raise Exception.Create('Invalid value: Incl');
+     if IsNan(El.Incl) then raise Exception.Create('Invalid value: Incl');
 
      El.q:=GetDist(Value_q.Text, Unit_q.Tag);
      El.n:=GetAnglePerTime(Value_n.Text, Unit_n.Tag);
      a:=GetDist(Value_a.Text, Unit_a.Tag);
      P:=GetTime(Value_Period.Text, Unit_Period.Tag);
 
-     if IsInfinite(El.q) then
+     if IsNan(El.q) then
       begin
        if El.e = 1.0 then
         begin
-         if IsInfinite(El.n) then raise Exception.Create('Invalid value: n');
+         if IsNan(El.n) then raise Exception.Create('Invalid value: n');
          El.q:=Power(0.5*GM/(El.n*El.n), 1/3);     // from the parabolic mean motion formula n = Sqrt(GM/(2*q^3))
         end
         else
         begin
-         if IsInfinite(a) then
+         if IsNan(a) then
           begin
-           if IsInfinite(El.n) then
+           if IsNan(El.n) then
             begin
              if El.e > 1.0 then
-             if not IsInfinite(P) then raise Exception.Create('Invalid value: Period') else raise Exception.Create('Invalid value: n');
-             if IsInfinite(P) or (P<0.0) then raise Exception.Create('Invalid value: Period');
+             if not IsNan(P) then raise Exception.Create('Invalid value: Period') else raise Exception.Create('Invalid value: n');
+             if IsNan(P) or (P<0.0) then raise Exception.Create('Invalid value: Period');
              El.n:=TWOPI/P;
             end;
            if El.n <= 0.0 then raise Exception.Create('Invalid value: n');
@@ -594,12 +633,12 @@ begin
      El.Mean:=GetAngle(Value_Mean.Text, Unit_Mean.Tag);
 
      // --- determine true anomaly (nu) at St.Epoch ---
-     if not IsInfinite(El.True) then
+     if not IsNan(El.True) then
       nu:=El.True
      else
       begin
        // compute the generalised mean anomaly first
-       if not IsInfinite(El.TPP) then
+       if not IsNan(El.TPP) then
         begin
          dt:=St.Epoch-El.TPP;        // seconds since periapsis
          if El.e = 1.0 then
@@ -607,11 +646,11 @@ begin
           MM:=Sqrt(GM/(2.0*El.q*El.q*El.q))*dt
          else
           begin
-           if IsInfinite(a) then a:=El.q/(1.0-El.e);   // a<0 for hyperbolic
+           if IsNan(a) then a:=El.q/(1.0-El.e);   // a<0 for hyperbolic
            MM:=Sqrt(GM/Abs(a*a*a))*dt;
           end;
         end
-       else if not IsInfinite(El.Mean) then
+       else if not IsNan(El.Mean) then
         MM:=El.Mean             // mean anomaly given directly at St.Epoch
        else
         raise Exception.Create('Need TPP, True or Mean anomaly');
@@ -663,12 +702,17 @@ begin
      St.R:=St.R*M;
      St.V:=St.V*M;
     end;
-   if FrameBox.ItemIndex>0 then
-    begin
-     M:=GetRotMat4D(CEPS, 1.0, 0.0, 0.0);
-     St.R:=St.R*M;
-     St.V:=St.V*M;
-    end;
+   case FrameBox.ItemIndex of
+     1: begin   // input given in J2000 ecliptic -> ICRF (inverse of EpsMatrix)
+          M:=GetRotMat4D(CEPS, 1.0, 0.0, 0.0);
+          St.R:=St.R*M;
+          St.V:=St.V*M;
+        end;
+     2: begin   // input given in the centre's equatorial frame -> ICRF (matrix cached by UpdateCenterFrame)
+          St.R:=St.R*FCenterMatrix;
+          St.V:=St.V*FCenterMatrix;
+        end;
+   end;
    if Value_SCenter.Tag<>centerID then
     begin
      // get position and velocity of TargetID=SCenter.Tag at St.Epoch
@@ -696,12 +740,12 @@ var
   i: Int64;
   b: Boolean;
 begin
-  b:=(TargetEdit.Text<>'') and (CenterBox.ItemIndex>=0) and (FrameBox.ItemIndex>=0) and not IsInfinite(FState.Epoch);
+  b:=(TargetEdit.Text<>'') and (CenterBox.ItemIndex>=0) and (FrameBox.ItemIndex>=0) and not IsNan(FState.Epoch);
   i:=7;
   while b and (i>0) do
    begin
     i:=i-1;
-    b:=not IsInfinite(FState.Num[i]);
+    b:=not IsNan(FState.Num[i]);
    end;
   StartBtn.Enabled:=b;
 end;
@@ -743,7 +787,7 @@ var
 begin
   target := Trim(TargetEdit.Text);
   ET := GetEpoch(Value_Epoch.Text, Unit_Epoch.Tag);
-  if (target = '') or IsNan(ET) or IsInfinite(ET) then Exit;   // guard (matches the button's enable condition)
+  if (target = '') or IsNan(ET) then Exit;   // guard (matches the button's enable condition); GetEpoch returns NaN for any bad input
   fs := TFormatSettings.Invariant;                             // '.' decimal separator for the URL
   JD := STANDARD_EPOCH + ET*SEC2DAY;                           // TDB Julian Date for TLIST
   // ICRF (REF_PLANE=FRAME), SSB (CENTER=@0), position+velocity (VEC_TABLE=2), km & km/s (OUT_UNITS=KM-S),
@@ -762,6 +806,7 @@ begin
   // up front also covers the "contacting..." wait and the failure path.)
   CenterBox.ItemIndex := 0;                     // 'Solar System BC' (centerID 0)
   FrameBox.ItemIndex  := 0;                     // ICRF (J2000 Equatorial)
+  UpdateCenterFrame;                            // SSB has no pole -> drop a stale "Orbit-centre Equatorial" option
   Caption := FBaseCaption + '   -   contacting Horizons...';   // busy status (also overwrites any leftover suffix)
   TargetEdit.RightButton.Enabled := False;     // don't let the (synchronous) request be re-fired from under itself
   Screen.Cursor := crHourGlass;
@@ -796,7 +841,7 @@ begin
     F.Free;
     HC.Free;
     Screen.Cursor := crDefault;
-    TargetEdit.RightButton.Enabled := not IsInfinite(GetEpoch(Value_Epoch.Text, Unit_Epoch.Tag));   // re-sync (matches Value_EpochChange)
+    TargetEdit.RightButton.Enabled := not IsNan(GetEpoch(Value_Epoch.Text, Unit_Epoch.Tag));   // re-sync (matches Value_EpochChange)
   end;
 end;
 
@@ -825,6 +870,8 @@ function TVecForm.ParseHorizons(F: TStringList): Boolean;
     Btn.Tag := ATag; Btn.Caption := ACap; Btn.Hint := AHint;
   end;
 
+const
+  DRAG_CD = 2.2;   // assumed free-molecular drag coefficient (matches JPLConv/Check.pas) for AMRAT -> BC/InvBC
 var
   i, j, p, q: Integer;
   Line: string;
@@ -832,8 +879,10 @@ var
   centerID: Int64;
   frameIdx, distTag, speedTag, angleTag, nTag, periodTag: Integer;
   soeIdx: Integer;
+  amrat: Double;
   sTarget: string;
-  sA1, sA2, sA3: string;
+  sA1, sA2, sA3, sAMRAT: string;
+  sR0, sALN, sNM, sNK, sDT: string;   // Horizons non-grav g(r) params + outgassing lag; grabbed only to warn (see the guard after the parse). NN(n) not grabbed: inert unless k<>0, which NK already flags
   sEpoch, sX, sY, sZ, sVX, sVY, sVZ: string;
   sEC, sQR, sIN, sOM, sW, sTp, sN, sMA, sTA, sA, sPR: string;
   parts: TArray<string>;
@@ -849,6 +898,14 @@ var
     while (b <= Length(s)) and (s[b] <> ' ') and (s[b] <> ';') do Inc(b);
     Result := Copy(s, a, b - a);
   end;
+  // A grabbed g(r) parameter counts as "non-default" only if it is present AND differs from the value the asteroid
+  // form assumes. Absent / non-numeric (units legend, or an asteroid with no such line) -> GetNum NaN -> default.
+  function NonDflt(const s: string; def: Double): Boolean;
+  var v: Double;
+  begin
+    v := GetNum(s);
+    Result := (not IsNan(v)) and (Abs(v - def) > 1.0E-6);
+  end;
 begin
   try
     ResetValues;
@@ -860,6 +917,7 @@ begin
       angleTag := 0;     nTag      := 4;     periodTag := 0;
       soeIdx   := -1;    sTarget   := '';
       sA1 := '';  sA2 := '';  sA3 := '';
+      sR0 := '';  sALN := '';  sNM := '';  sNK := '';  sDT := '';
 
       for i := 0 to F.Count - 1 do
       begin
@@ -907,6 +965,20 @@ begin
           sA2 := GrabStr(Line, 'A2=');
           sA3 := GrabStr(Line, 'A3=');
         end
+        else if Pos('R0=', Line) > 0 then
+         begin
+          // The g(r) parameter line ("ALN= .. NK= .. NM= .. NN= .. R0= .."). The units-legend line ("..R0=au):")
+          // also matches but grabs non-numeric junk -> treated as default below. Detection only (temporary guard):
+          // these are NOT applied; the full Marsden g(r) isn't modelled yet (see the warning after the parse).
+          sR0  := GrabStr(Line, 'R0=');
+          sALN := GrabStr(Line, 'ALN=');
+          sNM  := GrabStr(Line, 'NM=');
+          sNK  := GrabStr(Line, 'NK=');   // NN(n) intentionally not grabbed -- inert when k=0; see the guard below
+         end
+        else if Pos('DT=', Line) > 0 then
+          sDT := GrabStr(Line, 'DT=')   // comet outgassing time-lag (au... days); asteroids have no DT line
+        else if Pos('AMRAT=', Line) > 0 then
+          sAMRAT := GrabStr(Line, 'AMRAT=')   // area-to-mass ratio [m^2/kg] for drag; the units-legend "(AMRAT= m^2/kg;...;R0=au)" matches the R0= branch above first, so only the data line reaches here
         else if Trim(Line) = '$$SOE' then
         begin
           soeIdx := i;
@@ -965,9 +1037,18 @@ begin
             CenterBox.ItemIndex := j;
             Break;
           end;
+      UpdateCenterFrame;   // programmatic ItemIndex set above doesn't fire CenterBoxChange -> scope the frame option here
 
       TargetEdit.Text := sTarget;
       Value_A1.Text := sA1;  Value_A2.Text := sA2;  Value_A3.Text := sA3;   // '' when the file has no nongrav
+      // Atmospheric-drag ballistic data from the header's area-to-mass ratio (AMRAT, m^2/kg): store it as the
+      // equivalent ballistic coefficient BC = 1/(Cd*AMRAT) [kg/m^2]. CompBtnClick_Geometric turns that into
+      // InvBC = 1e-6/BC = 1e-6*Cd*AMRAT [km^2/kg] -- the same value JPLConv/Check.pas derives. Absent/<=0 -> blank.
+      amrat := GetNum(sAMRAT);
+      if (not IsNan(amrat)) and (amrat > 0.0) then
+        Value_BC.Text := Format('%.6g', [1.0 / (DRAG_CD * amrat)])
+      else
+        Value_BC.Text := '';
       SetBtn(Unit_Epoch, 1, CAPS_EPOCH[1], HINTS_EPOCH[1]);
       Value_Epoch.Text := sEpoch;
 
@@ -1005,6 +1086,19 @@ begin
         Value_VX.Text := ''; Value_VY.Text := ''; Value_VZ.Text := '';
       end;
       CompBtn.OnClick(CompBtn);
+      // TEMPORARY guard: the integrator models non-grav only as the asteroid form g(r) = (1 au/r)^2 with no
+      // outgassing lag. Warn if Horizons handed us anything else -- a non-default g(r) (R0/ALN/NM/NK) OR a
+      // non-zero DT (comet time-lag) -- so the approximation is loud, not silent. NN (n) is deliberately NOT
+      // tested: n acts only through the [1+(r/r0)^n]^(-k) bracket, which is 1 whenever k=0 (e.g. Apophis prints
+      // NN=5.093 but NK=0, so its model is still plain 1/r^2); a live bracket (k<>0) is caught by NonDflt(sNK).
+      // Only when a model actually exists (sA1<>''). The object still loads. Remove once full Marsden g(r)+DT land.
+      if (sA1 <> '') and (NonDflt(sR0, 1.0) or NonDflt(sALN, 1.0) or NonDflt(sNM, 2.0)
+                          or NonDflt(sNK, 0.0) or NonDflt(sDT, 0.0)) then
+        MessageDlg('This object''s non-gravitational model is not the asteroid form the integrator supports'
+          + ' (g(r) = (1 au / r)^2, no outgassing lag).'#13#10#13#10
+          + 'It will be integrated with that approximation: the A1/A2/A3 magnitudes load as-is, but the distance'
+          + ' scaling (R0/exponent) and any outgassing lag (DT) are not modelled yet -- so its non-gravitational'
+          + ' force will be approximate.', mtWarning, [mbOK], 0);
       Result := True;
   except on E: Exception do
     Result := False;
@@ -1085,7 +1179,7 @@ end;
 
 procedure TVecForm.Value_EpochChange(Sender: TObject);
 begin
-  TargetEdit.RightButton.Enabled:=(TargetEdit.Text<>'') and not IsInfinite(GetEpoch(Value_Epoch.Text, Unit_Epoch.Tag));
+  TargetEdit.RightButton.Enabled:=(TargetEdit.Text<>'') and not IsNan(GetEpoch(Value_Epoch.Text, Unit_Epoch.Tag));
 end;
 
 procedure TVecForm.Value_EpochDblClick(Sender: TObject);
@@ -1133,6 +1227,48 @@ begin
      end;
    end;
   inherited;
+end;
+
+procedure TVecForm.CenterBoxChange(Sender: TObject);
+begin
+  UpdateCenterFrame;   // re-scope the "Orbit-centre Equatorial" input frame to the newly selected centre
+  EnableStartBtn(Sender);
+end;
+
+// Add or remove the "Orbit-centre Equatorial" frame option to match the selected centre: it exists only when that
+// body has a pole on file. The cached matrix rotates input given in the centre's equatorial frame TO ICRF (the
+// integrator's frame), i.e. the transpose of OscForm's ICRF->equator matrix. Dropping it while selected falls back to ICRF.
+procedure TVecForm.UpdateCenterFrame;
+const
+  FRAME_EQ = 'Orbit-centre Equatorial';
+var
+  CenterID, di, ix: Int64;
+  pRA, pDec: Double;
+  hasPole: Boolean;
+begin
+  hasPole := False;
+  if CenterBox.ItemIndex >= 0 then
+   begin
+    CenterID := Int64(Pointer(CenterBox.Items.Objects[CenterBox.ItemIndex]));
+    di := MainForm.BSPXFile.FindDesc(CenterID);
+    if di >= 0 then
+     begin
+      pRA  := MainForm.BSPXFile.BodyConst[di]^.PoleRA;
+      pDec := MainForm.BSPXFile.BodyConst[di]^.PoleDec;
+      hasPole := (pRA <> 0.0) or (pDec <> 0.0);   // (0,0) = no pole on file for this body
+      if hasPole then FCenterMatrix := PoleEquatorMatrix(pRA, pDec).Transpose;   // centre-equatorial -> ICRF
+     end;
+   end;
+  ix := FrameBox.Items.IndexOf(FRAME_EQ);
+  if hasPole then
+   begin
+    if ix < 0 then FrameBox.Items.Add(FRAME_EQ);   // append (becomes index 2)
+   end
+  else if ix >= 0 then
+   begin
+    if FrameBox.ItemIndex = ix then FrameBox.ItemIndex := 0;   // fall back to ICRF before dropping the option
+    FrameBox.Items.Delete(ix);
+   end;
 end;
 
 procedure TVecForm.ComboDrawItem(Control: TWinControl; Index: Integer; Rect: TRect; State: TOwnerDrawState);

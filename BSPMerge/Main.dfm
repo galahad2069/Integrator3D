@@ -255,5 +255,9 @@ object MainForm: TMainForm
       Caption = 'Select &none'
       OnClick = PMSelectClick
     end
+    object PMBig16: TMenuItem
+      Caption = 'Select &SB441-N16 asteroids'
+      OnClick = PMBig16Click
+    end
   end
 end
