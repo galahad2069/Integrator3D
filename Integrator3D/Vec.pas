@@ -6,7 +6,7 @@ uses
   Winapi.Windows, Winapi.Messages,
   System.SysUtils, System.Variants, System.Classes, System.ImageList, System.UITypes, System.Math,
   Vcl.Graphics, Vcl.Controls, Vcl.Forms, Vcl.Dialogs, Vcl.StdCtrls, Vcl.ExtCtrls, Vcl.ImgList,
-  MathPlus64, Vec4D, BSPXFile, CelestialMechanics;
+  MathPlus64, Vec4D, BSPXFile, CelestialMechanics, Vcl.ComCtrls;
 
 const
   IDX_EPOCH = 7;
@@ -32,32 +32,10 @@ type
     Splitter2: TSplitter;
     Panel_INames: TPanel;
     Panel_Name_Header: TPanel;
-    Name_e: TPanel;
-    Name_TPP: TPanel;
-    Name_Incl: TPanel;
-    Name_Node: TPanel;
-    Name_Peri: TPanel;
-    Name_q: TPanel;
-    Name_Mean: TPanel;
-    Name_True: TPanel;
     Name_Epoch: TPanel;
-    Name_Period: TPanel;
-    name_n: TPanel;
-    Name_a: TPanel;
     Panel_IUnits: TPanel;
     Panel_Unit_Header: TPanel;
-    Unit_TPP: TButton;
-    Unit_Period: TButton;
-    Unit_n: TButton;
-    Unit_a: TButton;
     Unit_Epoch: TButton;
-    Unit_Incl: TButton;
-    Unit_Node: TButton;
-    Unit_Peri: TButton;
-    Unit_q: TButton;
-    Unit_e: TButton;
-    Unit_True: TButton;
-    Unit_Mean: TButton;
     Panel_IValues: TPanel;
     Panel_Value_Header: TPanel;
     TargetEdit: TButtonedEdit;
@@ -85,44 +63,8 @@ type
     Panel_OValues: TPanel;
     Panel25: TPanel;
     StartBtn: TButton;
-    Value_e: TEdit;
-    Value_q: TEdit;
-    Value_Peri: TEdit;
-    Value_Node: TEdit;
-    Value_Incl: TEdit;
-    Value_TPP: TEdit;
-    Value_a: TEdit;
-    Value_n: TEdit;
-    Value_Period: TEdit;
     Value_Epoch: TEdit;
-    Value_True: TEdit;
-    Value_Mean: TEdit;
     OpenDialog: TOpenDialog;
-    Panel1: TPanel;
-    Panel2: TPanel;
-    Panel4: TPanel;
-    Name_RX: TPanel;
-    Value_RX: TEdit;
-    Unit_RX: TButton;
-    Name_RY: TPanel;
-    Name_RZ: TPanel;
-    Value_RY: TEdit;
-    Value_RZ: TEdit;
-    Unit_RY: TButton;
-    Unit_RZ: TButton;
-    Panel13: TPanel;
-    Panel14: TPanel;
-    Panel15: TPanel;
-    Name_VX: TPanel;
-    Name_VY: TPanel;
-    Name_VZ: TPanel;
-    Value_VX: TEdit;
-    Value_VY: TEdit;
-    Value_VZ: TEdit;
-    Unit_VX: TButton;
-    Unit_VY: TButton;
-    Unit_VZ: TButton;
-    Panel5: TPanel;
     Panel6: TPanel;
     Panel8: TPanel;
     Value_SVZ: TPanel;
@@ -140,18 +82,6 @@ type
     Unit_SFrame: TButton;
     Value_SCenter: TPanel;
     Value_SFrame: TPanel;
-    Name_A1: TPanel;
-    Panel9: TPanel;
-    Name_A2: TPanel;
-    Name_A3: TPanel;
-    Panel7: TPanel;
-    Value_A1: TEdit;
-    Value_A2: TEdit;
-    Value_A3: TEdit;
-    Panel10: TPanel;
-    Unit_A3: TButton;
-    Unit_A2: TButton;
-    Unit_A1: TButton;
     Name_SA1: TPanel;
     Name_SA2: TPanel;
     Name_SA3: TPanel;
@@ -164,19 +94,159 @@ type
     Unit_SA1: TButton;
     Unit_SA2: TButton;
     Unit_SA3: TButton;
-    Value_BC: TEdit;
-    Name_BC: TPanel;
-    Unit_BC: TButton;
     Value_SBC: TPanel;
     Name_SBC: TPanel;
     Unit_SBC: TButton;
+    PageControl: TPageControl;
+    TabSheet1: TTabSheet;
+    TabSheet2: TTabSheet;
+    TabSheet3: TTabSheet;
+    Panel_vINames: TPanel;
+    Name_RX: TPanel;
+    Name_RY: TPanel;
+    Name_RZ: TPanel;
+    Panel37: TPanel;
+    Name_VX: TPanel;
+    Name_VY: TPanel;
+    Name_VZ: TPanel;
+    Splitter5: TSplitter;
+    Panel_vIValues: TPanel;
+    Value_RX: TEdit;
+    Value_RY: TEdit;
+    Value_RZ: TEdit;
+    Panel49: TPanel;
+    Value_VX: TEdit;
+    Value_VY: TEdit;
+    Value_VZ: TEdit;
+    Panel_vIUnits: TPanel;
+    Unit_RX: TButton;
+    Unit_RY: TButton;
+    Unit_RZ: TButton;
+    Panel54: TPanel;
+    Unit_VX: TButton;
+    Unit_VY: TButton;
+    Unit_VZ: TButton;
+    Splitter6: TSplitter;
+    Panel_cINames: TPanel;
+    Name_e: TPanel;
+    Name_TPP: TPanel;
+    Name_Incl: TPanel;
+    Name_Node: TPanel;
+    Name_Peri: TPanel;
+    Name_q: TPanel;
+    Name_Mean: TPanel;
+    Name_True: TPanel;
+    Name_Period: TPanel;
+    Name_n: TPanel;
+    Name_a: TPanel;
+    Splitter7: TSplitter;
+    Panel_cIUnits: TPanel;
+    Unit_TPP: TButton;
+    Unit_Period: TButton;
+    Unit_n: TButton;
+    Unit_a: TButton;
+    Unit_Incl: TButton;
+    Unit_Node: TButton;
+    Unit_Peri: TButton;
+    Unit_q: TButton;
+    Button31: TButton;
+    Unit_True: TButton;
+    Unit_Mean: TButton;
+    Splitter8: TSplitter;
+    Panel_cIValues: TPanel;
+    Value_e: TEdit;
+    Value_q: TEdit;
+    Value_Peri: TEdit;
+    Value_Node: TEdit;
+    Value_Incl: TEdit;
+    Value_TPP: TEdit;
+    Value_a: TEdit;
+    Value_n: TEdit;
+    Value_Period: TEdit;
+    Value_True: TEdit;
+    Value_Mean: TEdit;
+    Panel_nINames: TPanel;
+    Name_NN: TPanel;
+    Name_MM: TPanel;
+    Name_R0: TPanel;
+    Name_ALN: TPanel;
+    Name_DT: TPanel;
+    Name_KK: TPanel;
+    Name_A1: TPanel;
+    Name_A2: TPanel;
+    Name_A3: TPanel;
+    Name_BC: TPanel;
+    Splitter9: TSplitter;
+    Splitter10: TSplitter;
+    Panel_nIValues: TPanel;
+    Value_ALN: TEdit;
+    Value_R0: TEdit;
+    Value_MM: TEdit;
+    Value_NN: TEdit;
+    Value_KK: TEdit;
+    Value_DT: TEdit;
+    Value_A1: TEdit;
+    Value_A2: TEdit;
+    Value_A3: TEdit;
+    Value_BC: TEdit;
+    Panel_nIUnits: TPanel;
+    Unit_NN: TButton;
+    Unit_DT: TButton;
+    Unit_KK: TButton;
+    Unit_MM: TButton;
+    Unit_R0: TButton;
+    Unit_ALN: TButton;
+    Unit_A3: TButton;
+    Unit_A2: TButton;
+    Unit_A1: TButton;
+    Unit_BC: TButton;
+    Panel21: TPanel;
+    Panel22: TPanel;
+    Panel29: TPanel;
+    Splitter11: TSplitter;
+    Panel1: TPanel;
+    Panel2: TPanel;
+    Panel4: TPanel;
+    Panel5: TPanel;
+    Panel7: TPanel;
+    Panel9: TPanel;
+    Panel10: TPanel;
+    Name_SDT: TPanel;
+    Value_SDT: TPanel;
+    Unit_SDT: TButton;
+    Name_SALN: TPanel;
+    Name_SR0: TPanel;
+    Name_SMM: TPanel;
+    Name_SNN: TPanel;
+    Name_SKK: TPanel;
+    Value_SALN: TPanel;
+    Value_SR0: TPanel;
+    Value_SMM: TPanel;
+    Value_SNN: TPanel;
+    Value_SKK: TPanel;
+    Unit_SALN: TButton;
+    Unit_SR0: TButton;
+    Unit_SMM: TButton;
+    Unit_SNN: TButton;
+    Unit_SKK: TButton;
+    Name_AMRAT: TPanel;
+    Value_AMRAT: TEdit;
+    Unit_AMRAT: TButton;
+    Name_SAMRAT: TPanel;
+    Value_SAMRAT: TPanel;
+    Unit_SAMRAT: TButton;
+    Value_Albedo: TEdit;
+    Name_Albedo: TPanel;
     procedure FormCreate(Sender: TObject);
-    procedure UnitClick_Dist(Sender: TObject);
-    procedure UnitClick_Angle(Sender: TObject);
     procedure UnitClick_Epoch(Sender: TObject);
-    procedure UnitClick_AnglePerTime(Sender: TObject);
     procedure UnitClick_Time(Sender: TObject);
+    procedure UnitClick_Dist(Sender: TObject);
     procedure UnitClick_Speed(Sender: TObject);
+    procedure UnitClick_Accel(Sender: TObject);
+    procedure UnitClick_Angle(Sender: TObject);
+    procedure UnitClick_AnglePerTime(Sender: TObject);
+    procedure UnitClick_BC(Sender: TObject);
+    procedure UnitClick_IBC(Sender: TObject);
     procedure TargetEditLeftButtonClick(Sender: TObject);
     procedure ComboDrawItem(Control: TWinControl; Index: Integer; Rect: TRect; State: TOwnerDrawState);
     procedure WMDrawItem(var Message: TMessage); message WM_DRAWITEM;
@@ -190,6 +260,8 @@ type
     procedure Value_EpochDblClick(Sender: TObject);
     procedure TargetEditChange(Sender: TObject);
     procedure CenterBoxChange(Sender: TObject);
+    procedure PageControlResize(Sender: TObject);
+    procedure ShowHlp(Sender: TObject);
   private
     FElements: TElements;
     FState: TState4D;
@@ -201,6 +273,9 @@ type
     procedure DisplayEpoch(Panel: TPanel; ValueIndex, Tag: Int64);
     procedure DisplayDist(Panel: TPanel; ValueIndex, Tag: Int64);
     procedure DisplaySpeed(Panel: TPanel; ValueIndex, Tag: Int64);
+    procedure DisplayAccel(Panel: TPanel; ValueIndex, Tag: Int64);
+    procedure DisplayTime(Panel: TPanel; ValueIndex, Tag: Int64);
+    procedure DisplayIBC(Panel: TPanel; ValueIndex, Tag: Int64);
     procedure DisplayCenter;
     procedure DisplayFrame;
     procedure DisplayNonGrav;
@@ -217,7 +292,8 @@ var
 
 implementation
 
-uses Main, Vcl.Themes, Int, System.Net.HttpClient, System.Net.URLClient, System.NetEncoding, RSoftUtils64;
+uses Main, Vcl.Themes, Int, System.Net.HttpClient, System.Net.URLClient, System.NetEncoding, RSoftUtils64,
+  Hlp;
 
 {$R *.dfm}
 
@@ -276,6 +352,18 @@ begin
   end;
 end;
 
+function GetAccel(const S: string; Tag: Int64): Double;
+const
+  SF: array[0..6] of Double = (1e-9, 1e-6, 1e-3, 9.81e-3, 1.0, AU_KM/(TAU2SEC*TAU2SEC), AU_KM/(DAY2SEC*DAY2SEC));   // input unit -> km/s^2; tag5=AU/tau^2, tag6=AU/day^2 (matches CAPS_ACC order)
+begin
+  try
+   Result:=StrToFloat(S)*SF[Tag];
+   if IsInfinite(Result) then Result:=NaN;
+  except
+   Result:=NaN;
+  end;
+end;
+
 function GetAngle(const S: string; Tag: Int64): Double;
 begin
   try
@@ -326,18 +414,56 @@ begin
   end;
 end;
 
+function GetBC(const S: string; Tag: Int64): Double;
+// result should be kg/km²
+// tag=0 --> input is kg/m²
+// tag=1 --> input is kg/km²
+begin
+  try
+   case Tag of
+    0:   Result:=StrToFloat(S)*1e6;
+    else Result:=StrToFloat(S);
+   end;
+   if IsInfinite(Result) then Result:=NaN;
+  except
+   Result:=NaN;
+  end;
+end;
+
+function GetIBC(const S: string; Tag: Int64): Double;
+// result should be km²/kg
+// tag=0 --> input is m²/kg
+// tag=1 --> input is km²/kg
+begin
+  try
+   case Tag of
+    0:   Result:=StrToFloat(S)*1e-6;
+    else Result:=StrToFloat(S);
+   end;
+   if IsInfinite(Result) then Result:=NaN;
+  except
+   Result:=NaN;
+  end;
+end;
+
 procedure TVecForm.FormCreate(Sender: TObject);
 begin
   FBaseCaption := Caption;   // captured once; the Horizons fetch appends a status suffix to this and clears back to it
   FCenterMatrix := GetIdentityMat4D;   // valid placeholder until a pole-bearing centre is selected (UpdateCenterFrame)
-  Unit_SRX.LinkedPanel   :=Value_SRX;    Unit_SRX.LinkedIndex   :=0;
-  Unit_SRY.LinkedPanel   :=Value_SRY;    Unit_SRY.LinkedIndex   :=1;
-  Unit_SRZ.LinkedPanel   :=Value_SRZ;    Unit_SRZ.LinkedIndex   :=2;
-  Unit_SVX.LinkedPanel   :=Value_SVX;    Unit_SVX.LinkedIndex   :=4;
-  Unit_SVY.LinkedPanel   :=Value_SVY;    Unit_SVY.LinkedIndex   :=5;
-  Unit_SVZ.LinkedPanel   :=Value_SVZ;    Unit_SVZ.LinkedIndex   :=6;
-  Unit_SEpoch.LinkedPanel:=Value_SEpoch; Unit_SEpoch.LinkedIndex:=8;
-  //Unit_SBC.LinkedPanel:=Value_SBC;       Unit_SBC.LinkedIndex   :=9;
+  Unit_SRX.LinkedPanel   :=Value_SRX;    Unit_SRX.LinkedIndex   :=  0;
+  Unit_SRY.LinkedPanel   :=Value_SRY;    Unit_SRY.LinkedIndex   :=  1;
+  Unit_SRZ.LinkedPanel   :=Value_SRZ;    Unit_SRZ.LinkedIndex   :=  2;
+  Unit_SVX.LinkedPanel   :=Value_SVX;    Unit_SVX.LinkedIndex   :=  4;
+  Unit_SVY.LinkedPanel   :=Value_SVY;    Unit_SVY.LinkedIndex   :=  5;
+  Unit_SVZ.LinkedPanel   :=Value_SVZ;    Unit_SVZ.LinkedIndex   :=  6;
+  Unit_SEpoch.LinkedPanel:=Value_SEpoch; Unit_SEpoch.LinkedIndex:=  8;
+  Unit_SA1.LinkedPanel   :=Value_SA1;    Unit_SA1.LinkedIndex   := -1;
+  Unit_SA2.LinkedPanel   :=Value_SA2;    Unit_SA2.LinkedIndex   := -2;
+  Unit_SA3.LinkedPanel   :=Value_SA3;    Unit_SA3.LinkedIndex   := -3;
+  Unit_SR0.LinkedPanel   :=Value_SR0;    Unit_SR0.LinkedIndex   := -5;
+  Unit_SDT.LinkedPanel   :=Value_SDT;    Unit_SDT.LinkedIndex   := -9;
+  Unit_SAMRAT.LinkedPanel:=Value_SAMRAT; Unit_SAMRAT.LinkedIndex:=-10;   // Vals[9]  = CR_AMRAT (Cr*A/m)
+  Unit_SBC.LinkedPanel   :=Value_SBC;    Unit_SBC.LinkedIndex   :=-11;   // Vals[10] = InvBC
 
   Unit_SEpoch.Caption := CAPS_EPOCH[Unit_SEpoch.Tag]; Unit_SEpoch.Hint := HINTS_EPOCH[Unit_SEpoch.Tag];
   Unit_SRX.Caption    := CAPS_DIST[Unit_SRX.Tag    ]; Unit_SRX.Hint    := HINTS_DIST[Unit_SRX.Tag    ];
@@ -346,6 +472,7 @@ begin
   Unit_SVX.Caption    := CAPS_SPEED[Unit_SVX.Tag   ]; Unit_SVX.Hint    := HINTS_SPEED[Unit_SVX.Tag   ];
   Unit_SVY.Caption    := CAPS_SPEED[Unit_SVY.Tag   ]; Unit_SVY.Hint    := HINTS_SPEED[Unit_SVY.Tag   ];
   Unit_SVZ.Caption    := CAPS_SPEED[Unit_SVZ.Tag   ]; Unit_SVZ.Hint    := HINTS_SPEED[Unit_SVZ.Tag   ];
+  Unit_SAMRAT.Caption := CAPS_IBC[Unit_SAMRAT.Tag  ]; Unit_SAMRAT.Hint := HINTS_IBC[Unit_SAMRAT.Tag  ];
   Unit_SBC.Caption    := CAPS_IBC[Unit_SBC.Tag     ]; Unit_SBC.Hint    := HINTS_IBC[Unit_SBC.Tag     ];
   Unit_RX.Caption     := CAPS_DIST[Unit_RX.Tag     ]; Unit_RX.Hint     := HINTS_DIST[Unit_RX.Tag     ];
   Unit_RY.Caption     := CAPS_DIST[Unit_RY.Tag     ]; Unit_RY.Hint     := HINTS_DIST[Unit_RY.Tag     ];
@@ -364,7 +491,14 @@ begin
   Unit_Period.Caption := CAPS_TIME[Unit_Period.Tag ]; Unit_Period.Hint := HINTS_TIME[Unit_Period.Tag ];
   Unit_TPP.Caption    := CAPS_EPOCH[Unit_TPP.Tag   ]; Unit_TPP.Hint    := HINTS_EPOCH[Unit_TPP.Tag   ];
   Unit_Epoch.Caption  := CAPS_EPOCH[Unit_Epoch.Tag ]; Unit_Epoch.Hint  := HINTS_EPOCH[Unit_Epoch.Tag ];
+  Unit_A1.Caption     := CAPS_ACC[Unit_A1.Tag      ]; Unit_A1.Hint     := HINTS_ACC[Unit_A1.Tag      ];
+  Unit_A2.Caption     := CAPS_ACC[Unit_A2.Tag      ]; Unit_A2.Hint     := HINTS_ACC[Unit_A2.Tag      ];
+  Unit_A3.Caption     := CAPS_ACC[Unit_A3.Tag      ]; Unit_A3.Hint     := HINTS_ACC[Unit_A3.Tag      ];
+  Unit_R0.Caption     := CAPS_DIST[Unit_R0.Tag     ]; Unit_R0.Hint     := HINTS_DIST[Unit_R0.Tag     ];
+  Unit_DT.Caption     := CAPS_TIME[Unit_DT.Tag     ]; Unit_DT.Hint     := HINTS_TIME[Unit_DT.Tag     ];
   Unit_BC.Caption     := CAPS_BC[Unit_BC.Tag       ]; Unit_BC.Hint     := HINTS_BC[Unit_BC.Tag       ];
+  Unit_AMRAT.Caption  := CAPS_IBC[Unit_AMRAT.Tag   ]; Unit_AMRAT.Hint  := HINTS_IBC[Unit_AMRAT.Tag   ];
+  Unit_SBC.Caption    := CAPS_IBC[Unit_SBC.Tag     ]; Unit_SBC.Hint    := HINTS_IBC[Unit_SBC.Tag     ];
 end;
 
 procedure TVecForm.ShowBlank;
@@ -382,22 +516,23 @@ var
   NG: TNonGrav;
   hasComet: Boolean;
 begin
-  NG := FNonGrav;             // carries the drag term (NG.InvBC) too; blank TEdits arrive as NaN (GetNum sentinel)
+  NG := FNonGrav;             // display sentinels: blank fields arrive as NaN. THIS is the only place they get cleared.
   hasComet := (not IsNan(NG.A1)) or (not IsNan(NG.A2)) or (not IsNan(NG.A3));
-  if hasComet then
-   begin
-    // At least one coefficient was entered -> a valid nongrav model. Zero the blanks, apply the standard
-    // asteroid g(r) (r0 = 1 au, m = 2), enable it.
-    if IsNan(NG.A1) then NG.A1 := 0.0;
-    if IsNan(NG.A2) then NG.A2 := 0.0;
-    if IsNan(NG.A3) then NG.A3 := 0.0;
-    NG.r0 := 1.0;  NG.m := 2.0;  NG.Active := True;
-   end
-  else
-   begin   // no comet term -> zero the blank coefficients (drag, if any, still rides along via NG.InvBC)
-    NG.A1 := 0.0;  NG.A2 := 0.0;  NG.A3 := 0.0;
-    NG.r0 := 1.0;  NG.m := 2.0;  NG.Active := False;
-   end;
+  // Clear the NaN display-sentinels into a valid, integrable record: blank A-coefficients -> 0; blank g(r) params ->
+  // the asteroid form g(r)=(1/r)^2 (r0 = 1 au in km); blank/invalid drag -> off. The A1/A2/A3 comet term runs iff at
+  // least one A was given (hasComet); drag runs independently iff InvBC>0. No NaN-clearing happens anywhere else.
+  if IsNan(NG.A1)    then NG.A1    := 0.0;
+  if IsNan(NG.A2)    then NG.A2    := 0.0;
+  if IsNan(NG.A3)    then NG.A3    := 0.0;
+  if IsNan(NG.Alpha) then NG.Alpha := 1.0;
+  if IsNan(NG.r0)    then NG.r0    := AU_KM;
+  if IsNan(NG.m)     then NG.m     := 2.0;
+  if IsNan(NG.n)     then NG.n     := 0.0;
+  if IsNan(NG.k)     then NG.k     := 0.0;
+  if IsNan(NG.DT)    then NG.DT    := 0.0;
+  if IsNan(NG.CR_AMRAT) or (NG.CR_AMRAT <  0.0) then NG.CR_AMRAT := 0.0;   // blank/negative => no SRP
+  if IsNan(NG.InvBC) or (NG.InvBC <= 0.0) then NG.InvBC := 0.0;
+  NG.Active := hasComet;
   // FState is SSB (Value_SCenter.Tag=0 drove the translation); the center recorded for the integrand is the
   // *authoring view* (FBarycenter at add time), which anchors its osculating-orbit display. Attach an NG record
   // whenever there is a comet term OR a drag term; otherwise a plain (NG-less) add.
@@ -432,20 +567,31 @@ begin
   CenterBox.ItemIndex:=-1;
   FrameBox.ItemIndex:=-1;
   for i:=0 to Panel_IValues.ControlCount-1 do if Panel_IValues.Controls[i] is TEdit then TEdit(Panel_IValues.Controls[i]).Text:='';
+  for i:=0 to Panel_vIValues.ControlCount-1 do if Panel_vIValues.Controls[i] is TEdit then TEdit(Panel_vIValues.Controls[i]).Text:='';
+  for i:=0 to Panel_cIValues.ControlCount-1 do if Panel_cIValues.Controls[i] is TEdit then TEdit(Panel_cIValues.Controls[i]).Text:='';
+  for i:=0 to Panel_nIValues.ControlCount-1 do if Panel_nIValues.Controls[i] is TEdit then TEdit(Panel_nIValues.Controls[i]).Text:='';
   // only the Value_S* output fields -- the column headers (Panel25 'Value:') and separators are panels too
   for i:=0 to Panel_OValues.ControlCount-1 do if (Panel_OValues.Controls[i] is TPanel) and (Copy(Panel_OValues.Controls[i].Name, 1, 6)='Value_') then TPanel(Panel_OValues.Controls[i]).Caption:='N/A';
-  FNonGrav.InvBC:=0.0;   // no drag until CompBtnClick_Geometric reads Value_BC (defensive: keep a stale term from leaking)
   FillChar(FElements, SizeOF(TElements), 0);
   FillChar(FState, SizeOf(TState4D), 0);
-  for i:=0 to 2 do begin FState.R.cf[i]:=NaN; FState.V.cf[i]:=NaN; end; FState.Epoch:=NaN;   // "not computed" sentinel (NaN convention; DisplayState tests IsNan)
+  for i:=0 to 2 do begin FState.R.cf[i]:=NaN; FState.V.cf[i]:=NaN; end; FState.Epoch:=NaN;
   FState.R.W:=1.0;
   for i:=Low(FElements.cf) to High(FElements.cf) do FElements.cf[i]:=NaN;
+  FNonGrav.Active:=False;
+  FNonGrav.A1:=NaN; FNonGrav.A2:=NaN; FNonGrav.A3:=NaN;
+  FNonGrav.Alpha:=NaN; FNonGrav.r0:=NaN;
+  FNonGrav.m:=NaN; FNonGrav.n:=NaN; FNonGrav.k:=NaN; FNonGrav.DT:=NaN;
+  FNonGrav.CR_AMRAT:=NaN; FNonGrav.InvBC:=NaN;
+  HlpForm.SetMode(MODE_ASTEROID);
+  HlpForm.Reset;
 end;
 
 procedure TVecForm.DisplayEpoch(Panel: TPanel; ValueIndex, Tag: Int64);
 var
   Value: Double;
 begin
+  if not Assigned(Panel) then Exit;
+  if (ValueIndex<Low(FState.Num)) or (ValueIndex>High(FState.Num)) then Value:=NaN else
   Value:=FState.Num[ValueIndex];
   if IsNan(Value) then Panel.Caption:='N/A' else
   case Tag of
@@ -455,11 +601,32 @@ begin
   end;
 end;
 
+procedure TVecForm.DisplayTime(Panel: TPanel; ValueIndex, Tag: Int64);
+var
+  Value: Double;
+begin
+  if not Assigned(Panel) then Exit;
+  if (ValueIndex<-Length(FNonGrav.Vals)) or (ValueIndex>=0) then Value:=NaN else
+  Value:=FNonGrav.Vals[-ValueIndex-1];
+  if IsNan(Value) then Panel.Caption:='N/A' else
+  case Tag of
+   1: Panel.Caption:=Format('%17.9f', [Value*SEC2HOUR]);
+   2: Panel.Caption:=Format('%17.9f', [Value*SEC2DAY]);
+   3: Panel.Caption:=Format('%17.9f', [Value*SEC2WEEK]);
+   4: Panel.Caption:=Format('%17.9f', [Value*SEC2MONTH]);
+   5: Panel.Caption:=Format('%17.9f', [Value*SEC2TAU]);
+   6: Panel.Caption:=Format('%17.9f', [Value*SEC2YEAR]);
+   else Panel.Caption:=Format('%17.9f', [Value]);
+  end;
+end;
+
 procedure TVecForm.DisplayDist(Panel: TPanel; ValueIndex, Tag: Int64);
 var
   Value: Double;
 begin
-  Value:=FState.Num[ValueIndex];
+  if not Assigned(Panel) then Exit;
+  if (ValueIndex<-Length(FNonGrav.Vals)) or (ValueIndex>High(FState.Num)) then Value:=NaN else
+  if ValueIndex>=0 then Value:=FState.Num[ValueIndex] else Value:=FNonGrav.Vals[-ValueIndex-1];
   if IsNan(Value) then Panel.Caption:='N/A' else
   case Tag of
    1: Panel.Caption:=Format('%17.9f', [Value * KM2AU]);
@@ -471,6 +638,8 @@ procedure TVecForm.DisplaySpeed(Panel: TPanel; ValueIndex, Tag: Int64);
 var
   Value: Double;
 begin
+  if not Assigned(Panel) then Exit;
+  if (ValueIndex<Low(FState.Num)) or (ValueIndex>High(FState.Num)) then Value:=NaN else
   Value:=FState.Num[ValueIndex];
   if IsNan(Value) then Panel.Caption:='N/A' else
   case Tag of
@@ -480,21 +649,42 @@ begin
   end;
 end;
 
+procedure TVecForm.DisplayAccel(Panel: TPanel; ValueIndex, Tag: Int64);
+var
+  Value: Double;
+const
+  SF: array[0..6] of Double = (1e9, 1e6, 1e3, 1/9.81e-3, 1.0, TAU2SEC*TAU2SEC/AU_KM, DAY2SEC*DAY2SEC/AU_KM);   // km/s^2 -> display unit (inverse of GetAccel); tag5=AU/tau^2, tag6=AU/day^2
+begin
+  if not Assigned(Panel) then Exit;
+  if (ValueIndex<-Length(FNonGrav.Vals)) or (ValueIndex>=0) then Value:=NaN else
+  Value:=FNonGrav.Vals[-ValueIndex-1];
+  if IsNan(Value) then Panel.Caption:='N/A' else
+   begin
+    if (Tag<Low(SF)) or (Tag>High(SF)) then Tag:=4;
+    Panel.Caption:=Format('%22.10e', [Value*SF[Tag]]);
+   end;
+end;
+
+procedure TVecForm.DisplayIBC(Panel: TPanel; ValueIndex, Tag: Int64);
+var
+  Value: Double;
+begin
+  if not Assigned(Panel) then Exit;
+  if (ValueIndex<-Length(FNonGrav.Vals)) or (ValueIndex>=0) then Value:=NaN else
+  Value:=FNonGrav.Vals[-ValueIndex-1];
+  if IsNan(Value) then Panel.Caption:='N/A' else
+  case Tag of
+   0: Panel.Caption:=Format('%22.10e', [Value*1e6]);
+   else Panel.Caption:=Format('%22.10e', [Value]);
+  end;
+end;
 
 procedure TVecForm.DisplayNonGrav;
-  // Signed fixed-width scientific ('+'/'-'/' ' sign slot + 7-digit mantissa + 3-digit exponent) so
-  // A1..A3 stay column-aligned whatever their signs. e.g. ' 0.0000000E+000', '-2.9017667E-014'.
-  function FmtA(x: Double): string;
-  begin
-    if IsNan(x) then begin Result := 'N/A'; Exit; end;
-    if x > 0 then Result := '+' else if x < 0 then Result := '-' else Result := ' ';
-    Result := Result + FormatFloat('0.0000000E+000', Abs(x));
-  end;
 begin
-  Value_SA1.Caption := FmtA(FNonGrav.A1);
-  Value_SA2.Caption := FmtA(FNonGrav.A2);
-  Value_SA3.Caption := FmtA(FNonGrav.A3);
-  Value_SBC.Caption := FmtA(FNonGrav.InvBC);
+  if IsNaN(FNonGrav.Alpha) then Value_SALN.Caption:='N/A' else Value_SALN.Caption:= Format('%17.9f', [FNonGrav.Alpha]);
+  if IsNaN(FNonGrav.m)     then Value_SMM.Caption :='N/A' else Value_SMM.Caption := Format('%17.9f', [FNonGrav.m]);
+  if IsNaN(FNonGrav.n)     then Value_SNN.Caption :='N/A' else Value_SNN.Caption := Format('%17.9f', [FNonGrav.n]);
+  if IsNaN(FNonGrav.k)     then Value_SKK.Caption :='N/A' else Value_SKK.Caption := Format('%17.9f', [FNonGrav.k]);
 end;
 
 procedure TVecForm.DisplayState;
@@ -502,13 +692,23 @@ begin
   DisplayEpoch(Value_SEpoch, Unit_SEpoch.LinkedIndex, Unit_SEpoch.Tag);
   DisplayCenter;
   DisplayFrame;
+
   DisplayDist(Value_SRX, Unit_SRX.LinkedIndex, Unit_SRX.Tag);
   DisplayDist(Value_SRY, Unit_SRY.LinkedIndex, Unit_SRY.Tag);
   DisplayDist(Value_SRZ, Unit_SRZ.LinkedIndex, Unit_SRZ.Tag);
   DisplaySpeed(Value_SVX, Unit_SVX.LinkedIndex, Unit_SVX.Tag);
   DisplaySpeed(Value_SVY, Unit_SVY.LinkedIndex, Unit_SVY.Tag);
   DisplaySpeed(Value_SVZ, Unit_SVZ.LinkedIndex, Unit_SVZ.Tag);
+
+  DisplayAccel(Value_SA1, Unit_SA1.LinkedIndex, Unit_SA1.Tag);
+  DisplayAccel(Value_SA2, Unit_SA2.LinkedIndex, Unit_SA2.Tag);
+  DisplayAccel(Value_SA3, Unit_SA3.LinkedIndex, Unit_SA3.Tag);
+
+  DisplayDist(Value_SR0, Unit_SR0.LinkedIndex, Unit_SR0.Tag);
+  DisplayTime(Value_SDT, Unit_SDT.LinkedIndex, Unit_SDT.Tag);
   DisplayNonGrav;
+  DisplayIBC(Value_SAMRAT, Unit_SAMRAT.LinkedIndex, Unit_SAMRAT.Tag);
+  DisplayIBC(Value_SBC,   Unit_SBC.LinkedIndex,   Unit_SBC.Tag);
 end;
 
 procedure TVecForm.DisplayCenter;
@@ -543,7 +743,7 @@ var
   St, Sc: TState4D;
   M: TMat4D;
   El: TElements;
-  a, P, GM, slr, nu, r, EA, MM, dt, S_disc, sGMp, BC: Double;
+  a, P, GM, slr, nu, r, EA, MM, dt, S_disc, sGMp, BC, albedo: Double;
   b: Boolean;
 begin
   try
@@ -567,15 +767,50 @@ begin
    St.V.Z:=GetSpeed(Value_VZ.Text, Unit_VZ.Tag);
    St.V.W:=0.0;
 
-   FNonGrav.A1:=GetNum(Value_A1.Text);
-   FNonGrav.A2:=GetNum(Value_A2.Text);
-   FNonGrav.A3:=GetNum(Value_A3.Text);
-   FNonGrav.r0:=NaN;   // placeholder; StartBtnClick always overwrites r0/m with the standard g(r) (1.0/2.0)
-   FNonGrav.m:=NaN;
+   // Read the nongrav fields in their displayed units -> km-native (GetAccel/GetDist/GetTime), NaN if blank. NO
+   // NaN-filtering or defaulting here: a blank field stays NaN so DisplayState shows it as N/A; defaults are applied
+   // only in StartBtnClick, at integration time. Alpha/m/n/k are dimensionless (GetNum).
+   FNonGrav.A1    := GetAccel(Value_A1.Text, Unit_A1.Tag);
+   FNonGrav.A2    := GetAccel(Value_A2.Text, Unit_A2.Tag);
+   FNonGrav.A3    := GetAccel(Value_A3.Text, Unit_A3.Tag);
+   FNonGrav.Alpha := GetNum(Value_ALN.Text);
+   FNonGrav.r0    := GetDist(Value_R0.Text, Unit_R0.Tag);
+   FNonGrav.m     := GetNum(Value_MM.Text);
+   FNonGrav.n     := GetNum(Value_NN.Text);
+   FNonGrav.k     := GetNum(Value_KK.Text);
+   FNonGrav.DT    := GetTime(Value_DT.Text, Unit_DT.Tag);
    FNonGrav.Active:=False;
+   // A g(r) model is only meaningful alongside at least a partial (asteroid-style) nongrav -- i.e. at least one of
+   // A1/A2/A3. With no A coefficient the nongrav is undetermined and won't run, so blank the g(r) params to NaN too:
+   // the Value_S* fields then read N/A across the board ("no nongrav will be applied"), instead of a lone k/r0/...
+   // showing with no A force to modulate. Drag (InvBC) is independent and untouched.
+   if IsNan(FNonGrav.A1) and IsNan(FNonGrav.A2) and IsNan(FNonGrav.A3) then
+    begin
+     FNonGrav.Alpha:=NaN; FNonGrav.r0:=NaN; FNonGrav.m:=NaN; FNonGrav.n:=NaN; FNonGrav.k:=NaN; FNonGrav.DT:=NaN;
+    end;
 
-   BC:=GetNum(Value_BC.Text);
-   if IsNan(BC) or (BC<=0.0) then FNonGrav.InvBC:=0.0 else FNonGrav.InvBC:=1e-6/BC;   // blank/NaN or BC<=0 -> no drag (guards against +Inf and negative InvBC)
+   // SRP driver Cr*(A/m). Value_AMRAT = raw geometric A/m; Value_Albedo = reflectivity (blank => 0 => total absorption,
+   // Cr=1). CR_AMRAT stays NaN (N/A) when AMRAT is blank. Independent of the comet term, like drag.
+   FNonGrav.CR_AMRAT:=GetIBC(Value_AMRAT.Text, Unit_AMRAT.Tag);   // raw A/m [km^2/kg] (m^2/kg input x1e-6)
+   if not IsNan(FNonGrav.CR_AMRAT) then
+    begin
+     albedo := GetNum(Value_Albedo.Text);                         // dimensionless; blank/negative -> 0 (Cr=1)
+     if IsNan(albedo) or (albedo < 0.0) then albedo := 0.0;
+     FNonGrav.CR_AMRAT := (1.0 + albedo) * FNonGrav.CR_AMRAT;     // fold reflectivity into the single stored field
+    end;
+   // A1 overlap: the radial A1 nongrav already carries the object's SRP (Horizons Comets-II model), so an AMRAT SRP
+   // on top double-counts the radial push (A2/A3 don't conflict). The format allows both, so ask rather than force:
+   // decline (default) drops AMRAT -> N/A in DisplayState; insist and both models go to the integrator.
+   if (not IsNan(FNonGrav.A1)) and (FNonGrav.A1 <> 0.0)
+      and (not IsNan(FNonGrav.CR_AMRAT)) and (FNonGrav.CR_AMRAT > 0.0)
+      and (MessageDlg(
+        'A1 (radial nongrav) and AMRAT (solar radiation pressure) both act radially and will double-count '
+        + 'if applied together.'#13#10#13#10 + 'Apply the AMRAT SRP anyway (in addition to A1)?',
+        mtWarning, [mbYes, mbNo], 0) <> mrYes) then
+     FNonGrav.CR_AMRAT := NaN;
+
+   BC:=GetBC(Value_BC.Text, Unit_BC.Tag);
+   if IsNan(BC) or (BC<=0.0) then FNonGrav.InvBC:=NaN else FNonGrav.InvBC:=1/BC;
 
    b:=False; i:=8;
    while (i>0) and not b do
@@ -845,6 +1080,11 @@ begin
   end;
 end;
 
+procedure TVecForm.PageControlResize(Sender: TObject);
+begin
+  PageControl.TabWidth:=(PageControl.ClientWidth - 16) div PageControl.PageCount;
+end;
+
 function TVecForm.ParseHorizons(F: TStringList): Boolean;
 
   function FindVal(const Line, Key: string; out Value: string): Boolean;
@@ -881,8 +1121,9 @@ var
   soeIdx: Integer;
   amrat: Double;
   sTarget: string;
-  sA1, sA2, sA3, sAMRAT: string;
-  sR0, sALN, sNM, sNK, sDT: string;   // Horizons non-grav g(r) params + outgassing lag; grabbed only to warn (see the guard after the parse). NN(n) not grabbed: inert unless k<>0, which NK already flags
+  sA1, sA2, sA3, sAMRAT, sAlbedo: string;
+  sGM, sRAD, sH: string;   // asteroid physical block (GM km^3/s^2, RAD km, H mag) -> pre-fill HlpForm
+  sR0, sALN, sNM, sNN, sNK, sDT: string;   // Horizons full Marsden g(r) params (ALN,R0,NM,NN,NK) + outgassing lag DT; applied to FNonGrav after the parse
   sEpoch, sX, sY, sZ, sVX, sVY, sVZ: string;
   sEC, sQR, sIN, sOM, sW, sTp, sN, sMA, sTA, sA, sPR: string;
   parts: TArray<string>;
@@ -898,14 +1139,6 @@ var
     while (b <= Length(s)) and (s[b] <> ' ') and (s[b] <> ';') do Inc(b);
     Result := Copy(s, a, b - a);
   end;
-  // A grabbed g(r) parameter counts as "non-default" only if it is present AND differs from the value the asteroid
-  // form assumes. Absent / non-numeric (units legend, or an asteroid with no such line) -> GetNum NaN -> default.
-  function NonDflt(const s: string; def: Double): Boolean;
-  var v: Double;
-  begin
-    v := GetNum(s);
-    Result := (not IsNan(v)) and (Abs(v - def) > 1.0E-6);
-  end;
 begin
   try
     ResetValues;
@@ -917,7 +1150,8 @@ begin
       angleTag := 0;     nTag      := 4;     periodTag := 0;
       soeIdx   := -1;    sTarget   := '';
       sA1 := '';  sA2 := '';  sA3 := '';
-      sR0 := '';  sALN := '';  sNM := '';  sNK := '';  sDT := '';
+      sR0 := '';  sALN := '';  sNM := '';  sNN := '';  sNK := '';  sDT := '';
+      sGM := '';  sRAD := ''; sH := '';
 
       for i := 0 to F.Count - 1 do
       begin
@@ -957,28 +1191,48 @@ begin
           if (p > 0) and (q > p) then
             centerID := StrToInt64(Trim(Copy(Line, p + 1, q - p - 1)));
         end
-        else if (Pos('A1=', Line) > 0) and (Pos('A2=', Line) > 0) then
+        else if Pos('A1=', Line) > 0 then
         begin
-          // Asteroid nongrav coefficients ("A1= .. A2= .. A3= .."); the units-legend line has 'A1,' not
-          // 'A1=', so it is skipped. Grab the value strings for the Value_A* edits (applied below).
+          // Nongrav radial/transverse/normal coefficients. Two Horizons layouts (mirror JPLConv/Check.pas):
+          //  (a) "A1= .. A2= .. A3= .."  (g(r) on a separate R0= line), e.g. asteroids/comets
+          //  (b) "A1= .. ALN= .. NK= .. NM= .. NN= .. R0= .."  (A2/A3 absent, g(r) same line), e.g. SpaceX Roadster --
+          //      its whole nongrav IS the radial A1 solar radiation pressure.
+          // The units-legend "(...;A1,A2,A3=au/d^2;...)" has 'A1,' (comma) not 'A1=', so it never matches here.
           sA1 := GrabStr(Line, 'A1=');
-          sA2 := GrabStr(Line, 'A2=');
+          sA2 := GrabStr(Line, 'A2=');   // '' when absent (layout b) -> Value_A2 blank -> 0
           sA3 := GrabStr(Line, 'A3=');
+          if Pos('R0=', Line) > 0 then   // layout (b): g(r) params share the A1 line (the else-if chain would otherwise
+          begin                          // skip the R0= branch for this line)
+            sR0  := GrabStr(Line, 'R0=');
+            sALN := GrabStr(Line, 'ALN=');
+            sNM  := GrabStr(Line, 'NM=');
+            sNN  := GrabStr(Line, 'NN=');
+            sNK  := GrabStr(Line, 'NK=');
+          end;
         end
         else if Pos('R0=', Line) > 0 then
          begin
-          // The g(r) parameter line ("ALN= .. NK= .. NM= .. NN= .. R0= .."). The units-legend line ("..R0=au):")
-          // also matches but grabs non-numeric junk -> treated as default below. Detection only (temporary guard):
-          // these are NOT applied; the full Marsden g(r) isn't modelled yet (see the warning after the parse).
+          // Standalone g(r) parameter line ("ALN= .. NK= .. NM= .. NN= .. R0= .."), layout (a). The units-legend
+          // ("..R0=au):") also matches but grabs non-numeric junk -> treated as default when applied below.
           sR0  := GrabStr(Line, 'R0=');
           sALN := GrabStr(Line, 'ALN=');
           sNM  := GrabStr(Line, 'NM=');
-          sNK  := GrabStr(Line, 'NK=');   // NN(n) intentionally not grabbed -- inert when k=0; see the guard below
+          sNN  := GrabStr(Line, 'NN=');
+          sNK  := GrabStr(Line, 'NK=');
          end
         else if Pos('DT=', Line) > 0 then
           sDT := GrabStr(Line, 'DT=')   // comet outgassing time-lag (au... days); asteroids have no DT line
         else if Pos('AMRAT=', Line) > 0 then
           sAMRAT := GrabStr(Line, 'AMRAT=')   // area-to-mass ratio [m^2/kg] for drag; the units-legend "(AMRAT= m^2/kg;...;R0=au)" matches the R0= branch above first, so only the data line reaches here
+        else if Pos('ALBEDO=', Line) > 0 then
+          sAlbedo := GrabStr(Line, 'ALBEDO=')   // asteroid geometric albedo (physical block, "ALBEDO= .350"); 'n.a.' -> non-numeric -> blank -> Cr=1
+        else if (Pos('RAD=', Line) > 0) and (Pos('ROTPER=', Line) > 0) then
+         begin                                  // asteroid physical line 1: "GM= .. RAD= .. ROTPER= .." (units km, s)
+          sGM  := GrabStr(Line, 'GM=');         // km^3/s^2 ('n.a.' -> non-numeric -> ignored)
+          sRAD := GrabStr(Line, 'RAD=');        // mean radius [km]
+         end
+        else if (Pos('H=', Line) > 0) and (Pos('G=', Line) > 0) then
+          sH := GrabStr(Line, 'H=')             // asteroid absolute magnitude (H-G line; comets carry M1= instead)
         else if Trim(Line) = '$$SOE' then
         begin
           soeIdx := i;
@@ -1041,16 +1295,49 @@ begin
 
       TargetEdit.Text := sTarget;
       Value_A1.Text := sA1;  Value_A2.Text := sA2;  Value_A3.Text := sA3;   // '' when the file has no nongrav
+      // Full Marsden g(r) params into their edits; CompBtnClick_Geometric (via CompBtn.OnClick below) reads them,
+      // and a blank field -- e.g. an asteroid with no g(r) line -- falls back to the asteroid default there.
+      Value_ALN.Text := sALN;  Value_R0.Text := sR0;  Value_MM.Text := sNM;
+      Value_NN.Text  := sNN;   Value_KK.Text := sNK;  Value_DT.Text := sDT;
+      // Nongrav fields arrive in fixed Horizons units: A1/A2/A3 in au/day^2, R0 in au, DT in days, and the
+      // AMRAT-derived BC in kg/m^2. Set their unit buttons (present in both file formats) so the display and
+      // CompBtnClick's GetAccel/GetDist/GetTime/GetBC read them correctly. Alpha/m/n/k are dimensionless (no unit).
+      SetBtn(Unit_A1, 6, CAPS_ACC[6],  HINTS_ACC[6]);   SetBtn(Unit_A2, 6, CAPS_ACC[6], HINTS_ACC[6]);   // AU/day^2 is tag 6 now
+      SetBtn(Unit_A3, 6, CAPS_ACC[6],  HINTS_ACC[6]);
+      SetBtn(Unit_R0, 1, CAPS_DIST[1], HINTS_DIST[1]);
+      SetBtn(Unit_DT, 2, CAPS_TIME[2], HINTS_TIME[2]);
+      SetBtn(Unit_BC, 0, CAPS_BC[0],   HINTS_BC[0]);
       // Atmospheric-drag ballistic data from the header's area-to-mass ratio (AMRAT, m^2/kg): store it as the
       // equivalent ballistic coefficient BC = 1/(Cd*AMRAT) [kg/m^2]. CompBtnClick_Geometric turns that into
       // InvBC = 1e-6/BC = 1e-6*Cd*AMRAT [km^2/kg] -- the same value JPLConv/Check.pas derives. Absent/<=0 -> blank.
       amrat := GetNum(sAMRAT);
       if (not IsNan(amrat)) and (amrat > 0.0) then
-        Value_BC.Text := Format('%.6g', [1.0 / (DRAG_CD * amrat)])
+      begin
+        Value_BC.Text    := Format('%.6g', [1.0 / (DRAG_CD * amrat)]);
+        Value_AMRAT.Text := Format('%.6g', [amrat]);              // native m^2/kg for the SRP field
+      end
       else
-        Value_BC.Text := '';
+      begin
+        Value_BC.Text    := '';
+        Value_AMRAT.Text := '';
+      end;
+      // Geometric albedo (physical block) -> reflectivity Cr=1+albedo, combined with the raw AMRAT in CompBtnClick.
+      if IsNan(GetNum(sAlbedo)) then Value_Albedo.Text := ''       // 'n.a.' / absent -> blank -> Cr=1 (total absorption)
+      else Value_Albedo.Text := Format('%.6g', [GetNum(sAlbedo)]);
+      SetBtn(Unit_AMRAT, 0, CAPS_IBC[0], HINTS_IBC[0]);           // 0 => m^2/kg (Horizons native)
+
+      // Pre-fill the AMRAT/BC/Albedo helper (HlpForm) with this object's physical parameters, so the user can compute
+      // derived quantities from a loaded object. HlpForm was already blanked by ResetValues above; push what is numeric.
+      if not IsNan(GetNum(sGM))     then HlpForm.SetAstField(sGM, IDX_AST_GM, 1);                            // km^3/s^2
+      if not IsNan(GetNum(sRAD))    then HlpForm.SetAstField(Format('%.6g', [2.0*GetNum(sRAD)]), IDX_AST_D, 0);  // diameter = 2*RAD [km]
+      if not IsNan(GetNum(sH))      then HlpForm.SetAstField(sH, IDX_AST_H, 0);                              // magnitude (no unit button)
+      if not IsNan(GetNum(sAlbedo)) then HlpForm.SetAstField(sAlbedo, IDX_AST_ALBEDO, 0);                   // dimensionless (no unit button)
+
       SetBtn(Unit_Epoch, 1, CAPS_EPOCH[1], HINTS_EPOCH[1]);
       Value_Epoch.Text := sEpoch;
+
+      // Show the tab matching the incoming data format: 0 = state vectors, 1 = conical (osculating) elements.
+      if isVector then PageControl.TabIndex := 0 else PageControl.TabIndex := 1;
 
       if isVector then
       begin
@@ -1085,20 +1372,7 @@ begin
         Value_RX.Text := ''; Value_RY.Text := ''; Value_RZ.Text := '';
         Value_VX.Text := ''; Value_VY.Text := ''; Value_VZ.Text := '';
       end;
-      CompBtn.OnClick(CompBtn);
-      // TEMPORARY guard: the integrator models non-grav only as the asteroid form g(r) = (1 au/r)^2 with no
-      // outgassing lag. Warn if Horizons handed us anything else -- a non-default g(r) (R0/ALN/NM/NK) OR a
-      // non-zero DT (comet time-lag) -- so the approximation is loud, not silent. NN (n) is deliberately NOT
-      // tested: n acts only through the [1+(r/r0)^n]^(-k) bracket, which is 1 whenever k=0 (e.g. Apophis prints
-      // NN=5.093 but NK=0, so its model is still plain 1/r^2); a live bracket (k<>0) is caught by NonDflt(sNK).
-      // Only when a model actually exists (sA1<>''). The object still loads. Remove once full Marsden g(r)+DT land.
-      if (sA1 <> '') and (NonDflt(sR0, 1.0) or NonDflt(sALN, 1.0) or NonDflt(sNM, 2.0)
-                          or NonDflt(sNK, 0.0) or NonDflt(sDT, 0.0)) then
-        MessageDlg('This object''s non-gravitational model is not the asteroid form the integrator supports'
-          + ' (g(r) = (1 au / r)^2, no outgassing lag).'#13#10#13#10
-          + 'It will be integrated with that approximation: the A1/A2/A3 magnitudes load as-is, but the distance'
-          + ' scaling (R0/exponent) and any outgassing lag (DT) are not modelled yet -- so its non-gravitational'
-          + ' force will be approximate.', mtWarning, [mbOK], 0);
+      CompBtn.OnClick(CompBtn);   // reads the A1/A2/A3 + g(r) edits (populated above) into FNonGrav
       Result := True;
   except on E: Exception do
     Result := False;
@@ -1119,12 +1393,34 @@ begin
   end;
 end;
 
+procedure TVecForm.UnitClick_Epoch(Sender: TObject);
+var
+  Btn: TButton;
+begin
+  Btn := TButton(Sender);
+  Btn.Tag := (Btn.Tag + 1) mod Length(CAPS_EPOCH);
+  Btn.Caption := CAPS_EPOCH[Btn.Tag];
+  Btn.Hint    := HINTS_EPOCH[Btn.Tag];
+  if Btn.LinkedPanel<>nil then DisplayEpoch(Btn.LinkedPanel, Btn.LinkedIndex, Btn.Tag);
+end;
+
+procedure TVecForm.UnitClick_Time(Sender: TObject);
+var
+  Btn: TButton;
+begin
+  Btn := TButton(Sender);
+  Btn.Tag := (Btn.Tag + 1) mod Length(CAPS_TIME);
+  Btn.Caption := CAPS_TIME[Btn.Tag];
+  Btn.Hint    := HINTS_TIME[Btn.Tag];
+  if Btn.LinkedPanel<>nil then DisplayTime(Btn.LinkedPanel, Btn.LinkedIndex, Btn.Tag);
+end;
+
 procedure TVecForm.UnitClick_Dist(Sender: TObject);
 var
   Btn: TButton;
 begin
   Btn := TButton(Sender);
-  Btn.Tag := (Btn.Tag + 1) mod 2;
+  Btn.Tag := (Btn.Tag + 1) mod Length(CAPS_DIST);
   Btn.Caption := CAPS_DIST[Btn.Tag];
   Btn.Hint    := HINTS_DIST[Btn.Tag];
   if Btn.LinkedPanel<>nil then DisplayDist(Btn.LinkedPanel, Btn.LinkedIndex, Btn.Tag);
@@ -1139,6 +1435,17 @@ begin
   Btn.Caption := CAPS_SPEED[Btn.Tag];
   Btn.Hint    := HINTS_SPEED[Btn.Tag];
   if Btn.LinkedPanel<>nil then DisplaySpeed(Btn.LinkedPanel, Btn.LinkedIndex, Btn.Tag);
+end;
+
+procedure TVecForm.UnitClick_Accel(Sender: TObject);
+var
+  Btn: TButton;
+begin
+  Btn := TButton(Sender);
+  Btn.Tag := (Btn.Tag + 1) mod Length(CAPS_ACC);
+  Btn.Caption := CAPS_ACC[Btn.Tag];
+  Btn.Hint    := HINTS_ACC[Btn.Tag];
+  if Btn.LinkedPanel<>nil then DisplayAccel(Btn.LinkedPanel, Btn.LinkedIndex, Btn.Tag);
 end;
 
 procedure TVecForm.UnitClick_Angle(Sender: TObject);
@@ -1161,20 +1468,54 @@ begin
   Btn.Hint    := HINTS_ANGLEPT[Btn.Tag];
 end;
 
-procedure TVecForm.UnitClick_Time(Sender: TObject);
+procedure TVecForm.UnitClick_BC(Sender: TObject);
 var
   Btn: TButton;
 begin
   Btn := TButton(Sender);
-  Btn.Tag := (Btn.Tag + 1) mod Length(CAPS_TIME);
-  Btn.Caption := CAPS_TIME[Btn.Tag];
-  Btn.Hint    := HINTS_TIME[Btn.Tag];
+  Btn.Tag := (Btn.Tag + 1) mod Length(CAPS_BC);
+  Btn.Caption := CAPS_BC[Btn.Tag];
+  Btn.Hint    := HINTS_BC[Btn.Tag];
+end;
+
+procedure TVecForm.UnitClick_IBC(Sender: TObject);
+var
+  Btn: TButton;
+begin
+  Btn := TButton(Sender);
+  Btn.Tag := (Btn.Tag + 1) mod Length(CAPS_IBC);
+  Btn.Caption := CAPS_IBC[Btn.Tag];
+  Btn.Hint    := HINTS_IBC[Btn.Tag];
+  if Btn.LinkedPanel<>nil then DisplayIBC(Btn.LinkedPanel, Btn.LinkedIndex, Btn.Tag);
 end;
 
 procedure TVecForm.Unit_EpochClick(Sender: TObject);
 begin
   UnitClick_Epoch(Sender);
   Value_EpochChange(Value_Epoch);
+end;
+
+procedure TVecForm.ShowHlp(Sender: TObject);
+var
+  data: TAstData;
+begin
+  HlpForm.SetMode(MODE_ASTEROID);
+  if HlpForm.ShowModal=mrOK then
+   begin
+    data:=HlpForm.AstData;   // canonical units: AMRAT km^2/kg, BC kg/km^2, Albedo dimensionless
+    if not IsNan(data.AMRAT) then
+     begin
+      Value_AMRAT.Text := Format('%.6g', [data.AMRAT * 1.0E6]);   // km^2/kg -> m^2/kg (Unit_AMRAT tag 0)
+      Unit_AMRAT.Tag := 0; Unit_AMRAT.Caption := CAPS_IBC[0]; Unit_AMRAT.Hint := HINTS_IBC[0];
+     end;
+    if not IsNan(data.Albedo) then
+      Value_Albedo.Text := Format('%.6g', [data.Albedo]);
+    if not IsNan(data.BC) then
+     begin
+      Value_BC.Text := Format('%.6g', [data.BC * 1.0E-6]);        // kg/km^2 -> kg/m^2 (Unit_BC tag 0)
+      Unit_BC.Tag := 0; Unit_BC.Caption := CAPS_BC[0]; Unit_BC.Hint := HINTS_BC[0];
+     end;
+   end;
 end;
 
 procedure TVecForm.Value_EpochChange(Sender: TObject);
@@ -1192,17 +1533,6 @@ begin
   Unit_Epoch.Caption:=CAPS_EPOCH[2];
   Unit_Epoch.Hint:=HINTS_EPOCH[2];
   Value_EpochChange(Value_Epoch);
-end;
-
-procedure TVecForm.UnitClick_Epoch(Sender: TObject);
-var
-  Btn: TButton;
-begin
-  Btn := TButton(Sender);
-  Btn.Tag := (Btn.Tag + 1) mod Length(CAPS_EPOCH);
-  Btn.Caption := CAPS_EPOCH[Btn.Tag];
-  Btn.Hint    := HINTS_EPOCH[Btn.Tag];
-  if Btn.LinkedPanel<>nil then DisplayEpoch(Btn.LinkedPanel, Btn.LinkedIndex, Btn.Tag);
 end;
 
 procedure TVecForm.WMDrawItem(var Message: TMessage);

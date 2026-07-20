@@ -9,7 +9,8 @@ uses
   Vec in 'Vec.pas' {VecForm},
   Int in 'Int.pas' {IntForm},
   Acc in 'Acc.pas' {AccForm},
-  Chebyshev in '..\LIB\Chebyshev.pas';
+  Chebyshev in '..\LIB\Chebyshev.pas',
+  Hlp in 'Hlp.pas' {HlpForm};
 
 {$R *.res}
 
@@ -20,5 +21,6 @@ begin
   Application.CreateForm(TMainForm, MainForm);
   Application.CreateForm(TVecForm, VecForm);
   Application.CreateForm(TIntForm, IntForm);
+  Application.CreateForm(THlpForm, HlpForm);
   Application.Run;
 end.

@@ -20,7 +20,7 @@ const
   DIST_NEAR  = 0.06;
   DIST_FAR   = 700.0;
   TRAIL_SIZE = 20000;
-  FROZEN_LIFE = 600;   // frames a collided integrand's captured trail stays on screen before it's dropped
+  FROZEN_LIFE = 600;         // frames a collided integrand's captured trail stays on screen before it's dropped
   SPHERE_SLICES     = 32;    // gluSphere longitudinal subdivisions
   SPHERE_STACKS     = 24;    // gluSphere latitudinal subdivisions
   SPHERE_MIN_PIXELS = 5.0;   // a body draws as a textured sphere only when its projected radius exceeds this (else a dot)
@@ -314,12 +314,18 @@ const
   HINTS_ANGLEPT:  array[0..7] of string = ('radian(s) per second', 'radian(s) per hour', 'radian(s) per day', 'radian(s) per 58.132441 days', 'degree(s) per second', 'degree(s) per hour', 'degree(s) per day', 'degree(s) per 58.132441 days');
   CAPS_ANGLE:     array[0..1] of string = ('rad', 'deg');
   HINTS_ANGLE:    array[0..1] of string = ('radian(s)', 'degree(s)');
-  CAPS_ACC:       array[0..4] of string = ('μm/s²', 'mm/s²', 'm/s²', 'g', 'km/s²');
-  HINTS_ACC:      array[0..4] of string = ('micron(s) per square second', 'millimeter(s) per square second', 'meter(s) per square second', '1 g = 9.81 meters per square second', 'kilometer(s) per square seconds');
-  CAPS_BC:        array[0..0] of string = ('kg/m²');
-  HINTS_BC:       array[0..0] of string = ('kilogram(s) per square meter');
-  CAPS_IBC:       array[0..0] of string = ('km²/kg');
-  HINTS_IBC:      array[0..0] of string = ('square kilometer(s) per kilogram');
+  CAPS_ACC:       array[0..6] of string = ('μm/s²', 'mm/s²', 'm/s²', 'g', 'km/s²', 'AU/τ²', 'AU/day²');
+  HINTS_ACC:      array[0..6] of string = ('micron(s) per square second', 'millimeter(s) per square second', 'meter(s) per square second', '1 g = 9.81 meters per square second', 'kilometer(s) per square seconds', 'Astronomical Unit(s) per square 58.132441-days', 'Astronomical Unit(s) per square day');
+  CAPS_BC:        array[0..1] of string = ('kg/m²', 'kg/km²');
+  HINTS_BC:       array[0..1] of string = ('kilogram(s) per square meter', 'kilogram(s) per square kilometer');
+  CAPS_IBC:       array[0..1] of string = ('m²/kg', 'km²/kg');
+  HINTS_IBC:      array[0..1] of string = ('square meter(s) per kilogram', 'square kilometer(s) per kilogram');
+  CAPS_GM:        array[0..3] of string = ('m³/s²', 'km³/s²', 'AU³/day²', 'AU³/τ²');
+  HINTS_GM:       array[0..3] of string = ('cubic meter(s) per square second', 'cubic kilometer(s) per square second', 'cubic Astronomical Unit(s) per square day', 'cubic Astronomical Unit(s) per square 58.132441-days');
+  CAPS_M:         array[0..0] of string = ('kg');
+  HINTS_M:        array[0..0] of string = ('kilogram(s)');
+  CAPS_DENS:      array[0..2] of string = ('g/cm³', 'kg/m³', 'kg/km³');
+  HINTS_DENS:     array[0..2] of string = ('gram(s) per cubic centimeter', 'kilogram(s) per cubic meter', 'kilogram(s) per cubic kilometer');
 
 implementation
 

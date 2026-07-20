@@ -569,12 +569,60 @@ begin
   TThread.Queue(nil, procedure begin UpdateIntBoxSelection; if Assigned(MainForm) then MainForm.RebuildAccMenu; end);
 end;
 
+type
+  // Stable ON-DISK layout for TNonGrav: the original append-order record (A1,A2,A3,r0,m,Active,InvBC,Alpha,n,k,DT).
+  // .icf save/load map to/from this, so the in-memory TNonGrav field order is decoupled from the file format. Used
+  // to read legacy v1..v6 files (raw dumps of this exact layout); v7 uses the explicit block I/O below.
+  TNonGravDisk = record
+    A1, A2, A3, r0, m: Double;
+    Active: Boolean;
+    InvBC, Alpha, n, k, DT: Double;
+  end;
+const
+  DISK_V4_SIZE    = SizeOf(TNonGravDisk) - 4*SizeOf(Double);   // legacy v4 = through InvBC (byte-prefix)
+  DISK_PREV4_SIZE = SizeOf(TNonGravDisk) - 5*SizeOf(Double);   // legacy v2/v3 = through Active (byte-prefix)
+
+// v7 nongrav write: the ten Doubles (A1..InvBC, i.e. Vals) as one block, then Active as a byte. No record padding,
+// no dependence on the in-memory field order.
+procedure WriteNonGrav(Stream: TStream; const NG: TNonGrav);
+begin
+  Stream.WriteBuffer(NG.Vals[0], SizeOf(NG.Vals));
+  Stream.WriteBuffer(NG.Active,  SizeOf(NG.Active));
+end;
+
+// Read one nongrav record. v7 = explicit block (km-native, new order). v1..v6 = legacy raw TNonGravDisk (byte-prefix
+// per version) mapped into NG by name; v1..v5 additionally converted from SBDB au/day to the integrator's km/s.
+procedure ReadNonGrav(Stream: TStream; Ver: Int32; var NG: TNonGrav);
+var
+  D: TNonGravDisk;
+begin
+  FillChar(NG, SizeOf(NG), 0);
+  NG.r0 := 1.0; NG.m := 2.0; NG.Alpha := 1.0;      // asteroid-form defaults (r0 gets x AU_KM below for legacy files)
+  if Ver >= 7 then
+   begin
+    Stream.ReadBuffer(NG.Vals[0], SizeOf(NG.Vals));
+    Stream.ReadBuffer(NG.Active,  SizeOf(NG.Active));
+    Exit;                                          // v7 is already km-native in the new order
+   end;
+  FillChar(D, SizeOf(D), 0);
+  D.r0 := 1.0; D.m := 2.0; D.Alpha := 1.0;
+  if      Ver >= 5 then Stream.ReadBuffer(D, SizeOf(D))          // v5/v6: full record
+  else if Ver =  4 then Stream.ReadBuffer(D, DISK_V4_SIZE)       // v4: through InvBC
+  else if Ver >= 2 then Stream.ReadBuffer(D, DISK_PREV4_SIZE);   // v2/v3: through Active  (v1: nothing stored)
+  NG.A1:=D.A1; NG.A2:=D.A2; NG.A3:=D.A3; NG.Alpha:=D.Alpha; NG.r0:=D.r0;
+  NG.m:=D.m; NG.n:=D.n; NG.k:=D.k; NG.DT:=D.DT; NG.InvBC:=D.InvBC; NG.Active:=D.Active;
+  if Ver <= 5 then
+   begin   // v1..v5 stored au/day -> convert to km/s
+    NG.A1:=NG.A1*AUPD2_TO_KMPS2; NG.A2:=NG.A2*AUPD2_TO_KMPS2; NG.A3:=NG.A3*AUPD2_TO_KMPS2;
+    NG.r0:=NG.r0*AU_KM; NG.DT:=NG.DT*DAY2SEC;
+   end;
+end;
+
 procedure TIntForm.LoadBtnClick(Sender: TObject);
 const
   MAGIC_STR:   UInt32 = $494E5453;   // 'INTS'
-  VERSION_STR: Int32  = 4;   // v4 grows TNonGrav by the trailing InvBC (drag) field. v3 dropped the per-entry
-                             // center (SSB states -> centre is a view property assigned at load). v1/v2/v3 still load.
-  NONGRAV_PREV4_SIZE = SizeOf(TNonGrav) - SizeOf(Double);   // pre-v4 TNonGrav = current record minus its trailing InvBC (byte-prefix)
+  VERSION_STR: Int32  = 7;   // v7 stores TNonGrav via explicit block I/O (Vals[0..10] + Active), field-order-independent.
+                             // v1..v6 were raw dumps of the append-order layout (TNonGravDisk); ReadNonGrav maps them.
 var
   Stream: TFileStream;
   i, n: Int64;
@@ -621,16 +669,7 @@ begin
      if (NameLen > 0) and (Stream.Read(NameBytes[0], NameLen) <> NameLen) then
       raise Exception.Create('Unexpected end of file at entry ' + IntToStr(i) + '.');
      TmpNames[i]:=TEncoding.UTF8.GetString(NameBytes);
-     FillChar(TmpNonGrav[i], SizeOf(TNonGrav), 0);           // v1 default: no Yarkovsky, InvBC=0 (no drag)
-     TmpNonGrav[i].r0 := 1.0; TmpNonGrav[i].m := 2.0;        // standard g(r)
-     if Ver >= 4 then
-      begin   // v4+: full record incl. the trailing InvBC (drag) field
-       if Stream.Read(TmpNonGrav[i], SizeOf(TNonGrav)) <> SizeOf(TNonGrav) then
-        raise Exception.Create('Unexpected end of file at entry ' + IntToStr(i) + '.');
-      end
-     else if Ver >= 2 then   // v2/v3: pre-drag TNonGrav (byte-prefix); InvBC stays 0 from the FillChar above
-      if Stream.Read(TmpNonGrav[i], NONGRAV_PREV4_SIZE) <> NONGRAV_PREV4_SIZE then
-       raise Exception.Create('Unexpected end of file at entry ' + IntToStr(i) + '.');
+     ReadNonGrav(Stream, Ver, TmpNonGrav[i]);   // v7 explicit block; v1..v6 legacy layout mapped + au/day->km/s
     end;
    for i:=0 to n-1 do
     // Centre = the current view (rule 1: FBarycenter when added to IntBox), NOT the file's stale value.
@@ -644,7 +683,7 @@ end;
 procedure TIntForm.SaveBtnClick(Sender: TObject);
 const
   MAGIC_STR:   UInt32 = $494E5453;   // 'INTS'
-  VERSION_STR: Int32  = 4;   // v4 adds the trailing InvBC (drag) field to TNonGrav (see load for the format)
+  VERSION_STR: Int32  = 7;   // v7: TNonGrav written via explicit block I/O (WriteNonGrav) -- Vals[0..10] block + Active byte
 var
   Stream: TMemoryStream;
   i, n: Int64;
@@ -666,7 +705,7 @@ begin
      NameLen:=Length(NameBytes);
      Stream.WriteBuffer(NameLen, SizeOf(NameLen));
      if NameLen > 0 then Stream.WriteBuffer(NameBytes[0], NameLen);
-     Stream.WriteBuffer(FIntegrationNonGrav[i], SizeOf(TNonGrav));   // v2: per-object Yarkovsky
+     WriteNonGrav(Stream, FIntegrationNonGrav[i]);   // per-object nongrav, explicit block I/O (v7)
     end;
    Stream.SaveToFile(SaveDialog.FileName);
   except on E: Exception do
@@ -679,7 +718,7 @@ procedure TIntForm.SaveIntBtnClick(Sender: TObject);
 // Save the CURRENT (live) state of the running integrations to a .icf, in the same v3 format as SaveBtnClick.
 const
   MAGIC_STR:   UInt32 = $494E5453;   // 'INTS'
-  VERSION_STR: Int32  = 4;   // v4: TNonGrav carries the trailing InvBC (drag) field
+  VERSION_STR: Int32  = 7;   // v7: TNonGrav written via explicit block I/O (WriteNonGrav) -- Vals[0..10] block + Active byte
 var
   Stream: TMemoryStream;
   i, n: Int64;
@@ -730,7 +769,7 @@ begin
      NameLen:=Length(NameBytes);
      Stream.WriteBuffer(NameLen, SizeOf(NameLen));
      if NameLen > 0 then Stream.WriteBuffer(NameBytes[0], NameLen);
-     Stream.WriteBuffer(snapNonGrav[i], SizeOf(TNonGrav));
+     WriteNonGrav(Stream, snapNonGrav[i]);   // per-object nongrav, explicit block I/O (v7)
     end;
    Stream.SaveToFile(SaveDialog.FileName);
   except on E: Exception do

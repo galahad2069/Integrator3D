@@ -46,7 +46,18 @@ const
   AU2KM = AU_KM;
   AUPDAY2KMPS = 1/KMPS2AUPDAY;
   AUPTAU2KMPS = 1/KMPS2AUPTAU;
-  AUPD2_TO_KMPS2 = AU_KM / (DAY2SEC*DAY2SEC);   // SBDB nongrav A1..A3 (au/day^2) -> km/s^2  [see NonGravAccel]
+  AUPD2_TO_KMPS2 = AU_KM*SEC2DAY*SEC2DAY;   // SBDB nongrav A1..A3 (au/day^2) -> km/s^2  [see NonGravAccel]
+  AUPTAU2_TO_KMPS2 = AU_KM*SEC2TAU*SEC2TAU;
+
+  // --- Solar radiation pressure (see NonGravAccel) --------------------------------------------------------
+  L_SUN_W = 3.828E26;    // IAU 2015 nominal solar luminosity [W = kg*m^2/s^3]
+  // Dimensionless SRP/solar-gravity ratio  beta = SRP_BETA_PER_AMRAT * NG.CR_AMRAT   (NG.CR_AMRAT in km^2/kg).
+  //   beta = L_sun / (4*pi*c*GM_sun) * (A/m),  evaluated in SI (so AMRAT km^2/kg -> m^2/kg via x1e6);
+  //   c and GM_sun promoted km->m (x1e3 and x1e9). 4*pi = 12.566370614359172.
+  // Per unit A/m this is the PURE-ABSORPTION coefficient (Cr=1). Reflectivity Cr = 1+albedo is folded into the stored
+  // TNonGrav.CR_AMRAT (= Cr * geometric A/m) by the caller at data-prep time, per the Horizons manual.
+  SRP_BETA_PER_AMRAT = L_SUN_W * 1.0E6
+                       / (12.566370614359172 * (CLIGHT*1.0E3) * (GM_SUN*1.0E9));
 
   // The per-body zonal harmonics + reference radii + poles used by the integrators live in the small GOblateness
   // table (oblate bodies only), seeded lazily by TBSPXFile.Init from the file's reconciled const records.
@@ -69,13 +80,27 @@ type
   // JPL/SBDB small-body nongravitational parameters (radial/transverse/normal), used by NonGravAccel.
   // A1/A2/A3 are exactly the Small-Body DB coefficients in au/day^2; a Yarkovsky-only asteroid sets
   // only A2 (the along-track drift) and leaves A1 = A3 = 0.
+  // Full Marsden nongrav model, km-native: a = g(r)*(A1*r_hat + A2*t_hat + A3*n_hat) evaluated at r(t-DT), with
+  // g(r) = Alpha*(r/r0)^(-m)*[1+(r/r0)^n]^(-k); plus atmospheric drag via InvBC. The caller (VecForm / JPLConv)
+  // pre-converts SBDB au/day -> km/s ONCE, so the hot path (NonGravAccel) does zero unit conversion. Asteroid form =
+  // {Alpha=1, r0=1 au, m=2, n=k=DT=0} -> g(r)=(1/r)^2. Alpha/m/n/k are dimensionless and never converted.
+  //   The eleven Doubles are also reachable as Vals[0..10] (A1..InvBC, in declaration order) for index-based access.
+  //   Active is a Boolean kept OUT of the Double run so Vals is a clean array. .icf I/O is EXPLICIT (Int.pas maps
+  //   to/from a stable on-disk layout), so this field order can change freely without touching the file format.
   TNonGrav = record
-    A1, A2, A3: Double;   // radial, transverse, normal   [au/day^2]
-    r0:         Double;   // g(r) reference distance       [au]  (SBDB r_0; default 1.0)
-    m:          Double;   // g(r) exponent                       (SBDB m;   default 2.0 = asteroid form)
-    Active:     Boolean;  // False => the A1/A2/A3 comet term contributes nothing (drag below is independent of this)
-    InvBC:      Double;   // atmospheric drag: 1/BC = Cd*A/m [km^2/kg] (km-native, so AccelDragAll needs no unit bridge); hot path multiplies by it. 0 => no drag (skip).
-  end;                    // NB: appended last on purpose -- the pre-drag record is a byte-prefix, so old .icf files still load (see Int.pas v4)
+    Active: Boolean;      // False => the A1/A2/A3 comet term contributes nothing (drag/InvBC and SRP is independent of this)
+    case Integer of
+     0: (A1, A2, A3: Double;   // radial, transverse, normal accel [km/s^2]  (SBDB au/day^2; caller x AUPD2_TO_KMPS2)
+         Alpha:      Double;   // g(r) normalisation (SBDB ALN);   default 1.0
+         r0:         Double;   // g(r) reference distance [km]     (SBDB r_0 au; caller x AU_KM; default 1 au)
+         m:          Double;   // g(r) inner exponent (SBDB NM);   default 2.0 = asteroid form
+         n:          Double;   // g(r) bracket exponent (SBDB NN); default 0   (inert while k=0)
+         k:          Double;   // g(r) bracket exponent (SBDB NK); default 0   => bracket = 1 (asteroid / simple-comet)
+         DT:         Double;   // outgassing time-lag [s] (SBDB DT days; caller x DAY2SEC); default 0 => g(r) at current r
+         CR_AMRAT:   Double;   // SRP driver Cr*A/m [km^2/kg]: raw geometric A/m already scaled by Cr=1+albedo (input as AMRAT + Albedo, like BC->InvBC). 0 => no SRP
+         InvBC:      Double);  // atmospheric drag 1/BC = Cd*A/m [km^2/kg]; hot path multiplies by it; 0 => no drag
+     1: (Vals: array[0..10] of Double);   // Vals[0]=A1 .. Vals[8]=DT, Vals[9]=CR_AMRAT, Vals[10]=InvBC -- index view of the eleven Doubles above
+  end;
 
   // One oblate perturber's figure data for the zonal close-encounter terms (see AccelJ2All/AccelJHiAll).
   TJ2Perturber = record
@@ -3432,36 +3457,72 @@ function NonGravAccel(const Si, Sun: TState4D; const NG: TNonGrav): TVec4D;
 // are defined by v), so this is NOT a position-only TRKCallback -- it slots in beside AccelPN.
 // Sun = the Sun's state among the perturbers (heliocentric r,v are formed against it).
 //
-//   a_ng = g(r) * ( A1*u_r + A2*u_t + A3*u_n ),   g(r) = (r0/r)^m
+//   a_ng = g(r) * ( A1*u_r + A2*u_t + A3*u_n ),   g(r) = Alpha*(r/r0)^(-m)*[1+(r/r0)^n]^(-k) at r(t-DT)
 //   u_r = r_hat (Sun->body);  u_n = (r x v)^ (orbit normal);  u_t = u_n x u_r (in-plane, +prograde)
+// The full Marsden/SBDB g(r) is supported: the water-ice bracket (n,k), the ALN normalisation, and the DT
+// outgassing lag. Asteroids are the Alpha=1, k=0, DT=0 special case and cost exactly what they did before.
+//
+// Solar radiation pressure (NG.CR_AMRAT) is added on top: a radial, outward, 1/r^2 term  a_srp = beta*GM_sun/r^2*u_r
+// with beta = SRP_BETA_PER_AMRAT*AMRAT. Added to the full inward solar gravity it yields the usual (1-beta)
+// scaling. SRP is INDEPENDENT of the comet term (like drag), so it applies even when NG.Active is False.
 //
 // The RTN frame is built from r and v themselves, so it is correct regardless of the coordinate axes
 // (ICRF-equatorial vs ecliptic); only the heliocentric origin (the "- Sun") matters. A2 > 0 pushes
 // prograde and raises the semimajor axis -- the Yarkovsky sign convention of the SBDB coefficients.
 var
   r, v, ur, un, ut: TVec4D;
-  rmag, hmag, gr: Double;
+  rmag, hmag, gr, rkm, x: Double;
+  HelioIn, HelioLag: TState4D;
 begin
   FillChar(Result, SizeOf(TVec4D), 0);
-  if not NG.Active then Exit;                    // hook disabled -> zero contribution
 
-  r := Si.R - Sun.R;                             // heliocentric position (km)
-  v := Si.V - Sun.V;                             // heliocentric velocity (km/s)
+  r := Si.R - Sun.R;                             // heliocentric position (km)  -- needed by SRP and the comet term
   rmag := r.Magnitude3D;
   if rmag <= 0.0 then Exit;
+  ur := r * (1.0 / rmag);                        // radial unit vector (Sun->body)
 
-  ur := r * (1.0 / rmag);                        // radial unit vector
+  // Solar radiation pressure: radial (outward), 1/r^2, independent of the comet g(r) hook. CR_AMRAT<=0 => no SRP.
+  // beta = SRP_BETA_PER_AMRAT * CR_AMRAT, where CR_AMRAT = Cr*(A/m) already folds in the reflectivity Cr = 1+albedo
+  // (scaled by the caller at data-prep time, per the Horizons manual). CR_AMRAT is the raw geometric A/m when Cr=1.
+  if NG.CR_AMRAT > 0.0 then
+    Result := ur * (SRP_BETA_PER_AMRAT * NG.CR_AMRAT * GM_SUN / (rmag * rmag));
+
+  if not NG.Active then                          // comet term disabled -> SRP-only contribution
+   begin
+    Result.W := 0.0;
+    Exit;
+   end;
+
+  v := Si.V - Sun.V;                             // heliocentric velocity (km/s)
   un := r xor v;                                 // r x v (angular-momentum direction)
   hmag := un.Magnitude3D;
-  if hmag <= 0.0 then Exit;                      // v parallel r -> no RTN frame; bail
+  if hmag <= 0.0 then begin Result.W := 0.0; Exit; end;   // v parallel r -> no RTN frame; keep the SRP term & bail
   un := un * (1.0 / hmag);                       // normal unit vector
   ut := un xor ur;                               // transverse unit vector (in-plane, +along motion)
 
-  gr := Power(NG.r0 / (rmag * KM2AU), NG.m);     // heliocentric distance in au; SBDB r0/m apply directly
-                                                 // (for the m=2 default this is just Sqr(NG.r0/(rmag*KM2AU)))
+  // Heliocentric distance that drives g(r). A non-zero outgassing lag DT means the sublimation rate responds to
+  // the distance DT days earlier: propagate the heliocentric two-body state back by DT (Kepler, exact along the
+  // conic -- correct even for a large lag like an interstellar comet's) and take THAT distance. The RTN directions
+  // stay at the current epoch; only g's argument lags.
+  if NG.DT <> 0.0 then                            // NG.DT is seconds (pre-converted by the caller)
+   begin
+    HelioIn := Default(TState4D);
+    HelioIn.R := r;  HelioIn.V := v;  HelioIn.Epoch := 0.0;
+    if KeplerUniv(-NG.DT, GM_SUN, HelioIn, HelioLag)
+      then rkm := HelioLag.R.Magnitude3D
+      else rkm := rmag;                           // Kepler non-convergence -> fall back to the current distance
+   end
+  else
+    rkm := rmag;
 
-  // Sum the three SBDB components, then convert au/day^2 -> km/s^2.
-  Result := (ur * (NG.A1 * gr) + ut * (NG.A2 * gr) + un * (NG.A3 * gr)) * AUPD2_TO_KMPS2;
+  // Marsden g(r) = Alpha * (r/r0)^(-m) * [1 + (r/r0)^n]^(-k). r0 is km (pre-converted), so r/r0 is a bare ratio.
+  // k=0 (asteroid / simple-comet) makes the bracket 1 -- skip its two Power calls then, so the common path is cheap.
+  x  := rkm / NG.r0;
+  gr := NG.Alpha * Power(x, -NG.m);
+  if NG.k <> 0.0 then gr := gr * Power(1.0 + Power(x, NG.n), -NG.k);
+
+  // Sum the three components onto any SRP term already in Result. A1/A2/A3 are already km/s^2 (pre-converted).
+  Result := Result + ur * (NG.A1 * gr) + ut * (NG.A2 * gr) + un * (NG.A3 * gr);
   Result.W := 0.0;
 end;
 

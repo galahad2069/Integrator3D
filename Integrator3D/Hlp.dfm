@@ -1,0 +1,694 @@
+object HlpForm: THlpForm
+  Left = 0
+  Top = 0
+  BorderIcons = [biSystemMenu]
+  BorderStyle = bsSingle
+  Caption = 'Asteroid parameters'
+  ClientHeight = 263
+  ClientWidth = 332
+  Color = clBtnFace
+  Font.Charset = DEFAULT_CHARSET
+  Font.Color = clWindowText
+  Font.Height = -12
+  Font.Name = 'Segoe UI'
+  Font.Style = []
+  Position = poScreenCenter
+  OnCreate = FormCreate
+  TextHeight = 15
+  object Panel_Ast: TPanel
+    Left = 0
+    Top = 0
+    Width = 332
+    Height = 200
+    Align = alTop
+    BevelOuter = bvNone
+    TabOrder = 0
+    object Splitter1: TSplitter
+      Left = 82
+      Top = 0
+      Height = 200
+      ExplicitLeft = 120
+      ExplicitTop = 112
+      ExplicitHeight = 100
+    end
+    object Splitter2: TSplitter
+      Left = 247
+      Top = 0
+      Height = 200
+      Align = alRight
+      ExplicitLeft = 160
+      ExplicitTop = 152
+      ExplicitHeight = 100
+    end
+    object Panel_AstNames: TPanel
+      Left = 0
+      Top = 0
+      Width = 82
+      Height = 200
+      Align = alLeft
+      Constraints.MaxWidth = 100
+      Constraints.MinWidth = 50
+      Font.Charset = DEFAULT_CHARSET
+      Font.Color = clWindowText
+      Font.Height = -11
+      Font.Name = 'Courier New'
+      Font.Style = []
+      ParentFont = False
+      TabOrder = 0
+      ExplicitLeft = -3
+      ExplicitHeight = 210
+      object Panel_Name_Header: TPanel
+        Left = 1
+        Top = 1
+        Width = 80
+        Height = 20
+        Align = alTop
+        Caption = 'Parameter:'
+        TabOrder = 1
+      end
+      object Name_AstRa: TPanel
+        AlignWithMargins = True
+        Left = 1
+        Top = 53
+        Width = 72
+        Height = 16
+        Hint = 'Radius (a)'
+        Margins.Left = 0
+        Margins.Top = 0
+        Margins.Right = 8
+        Margins.Bottom = 0
+        Align = alTop
+        Alignment = taRightJustify
+        BevelOuter = bvNone
+        Caption = 'Ra:'
+        Padding.Right = 8
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 0
+      end
+      object Name_AstRc: TPanel
+        AlignWithMargins = True
+        Left = 1
+        Top = 85
+        Width = 72
+        Height = 16
+        Hint = 'Radius (c)'
+        Margins.Left = 0
+        Margins.Top = 0
+        Margins.Right = 8
+        Margins.Bottom = 0
+        Align = alTop
+        Alignment = taRightJustify
+        BevelOuter = bvNone
+        Caption = 'Rc:'
+        Padding.Right = 8
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 2
+      end
+      object Name_AstRb: TPanel
+        AlignWithMargins = True
+        Left = 1
+        Top = 69
+        Width = 72
+        Height = 16
+        Hint = 'Radius (b)'
+        Margins.Left = 0
+        Margins.Top = 0
+        Margins.Right = 8
+        Margins.Bottom = 0
+        Align = alTop
+        Alignment = taRightJustify
+        BevelOuter = bvNone
+        Caption = 'Rb:'
+        Padding.Right = 8
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 3
+      end
+      object Name_AstD: TPanel
+        AlignWithMargins = True
+        Left = 1
+        Top = 101
+        Width = 72
+        Height = 16
+        Hint = 'Diameter'
+        Margins.Left = 0
+        Margins.Top = 0
+        Margins.Right = 8
+        Margins.Bottom = 0
+        Align = alTop
+        Alignment = taRightJustify
+        BevelOuter = bvNone
+        Caption = 'D:'
+        Padding.Right = 8
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 4
+      end
+      object Name_AstAlbedo: TPanel
+        AlignWithMargins = True
+        Left = 1
+        Top = 165
+        Width = 72
+        Height = 16
+        Hint = 'Albedo (the fraction of sunlight reflected by the surface)'
+        Margins.Left = 0
+        Margins.Top = 0
+        Margins.Right = 8
+        Margins.Bottom = 0
+        Align = alTop
+        Alignment = taRightJustify
+        BevelOuter = bvNone
+        Caption = 'Albedo:'
+        Padding.Right = 8
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 5
+      end
+      object Name_AstH: TPanel
+        AlignWithMargins = True
+        Left = 1
+        Top = 149
+        Width = 72
+        Height = 16
+        Hint = 'Absolute magnitude'
+        Margins.Left = 0
+        Margins.Top = 0
+        Margins.Right = 8
+        Margins.Bottom = 0
+        Align = alTop
+        Alignment = taRightJustify
+        BevelOuter = bvNone
+        Caption = 'H:'
+        Padding.Right = 8
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 6
+      end
+      object Name_AstGM: TPanel
+        AlignWithMargins = True
+        Left = 1
+        Top = 21
+        Width = 72
+        Height = 16
+        Hint = 'Gravitational parameter'
+        Margins.Left = 0
+        Margins.Top = 0
+        Margins.Right = 8
+        Margins.Bottom = 0
+        Align = alTop
+        Alignment = taRightJustify
+        BevelOuter = bvNone
+        Caption = 'GM:'
+        Padding.Right = 8
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 7
+      end
+      object Name_AstM: TPanel
+        AlignWithMargins = True
+        Left = 1
+        Top = 37
+        Width = 72
+        Height = 16
+        Hint = 'Mass'
+        Margins.Left = 0
+        Margins.Top = 0
+        Margins.Right = 8
+        Margins.Bottom = 0
+        Align = alTop
+        Alignment = taRightJustify
+        BevelOuter = bvNone
+        Caption = 'M:'
+        Padding.Right = 8
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 8
+      end
+      object Name_AstAMRAT: TPanel
+        AlignWithMargins = True
+        Left = 1
+        Top = 117
+        Width = 72
+        Height = 16
+        Hint = 'Area-to-mass ratio'
+        Margins.Left = 0
+        Margins.Top = 0
+        Margins.Right = 8
+        Margins.Bottom = 0
+        Align = alTop
+        Alignment = taRightJustify
+        BevelOuter = bvNone
+        Caption = 'AMRAT:'
+        Padding.Right = 8
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 9
+      end
+      object Name_AstBC: TPanel
+        AlignWithMargins = True
+        Left = 1
+        Top = 133
+        Width = 72
+        Height = 16
+        Hint = 'Ballistic coefficient'
+        Margins.Left = 0
+        Margins.Top = 0
+        Margins.Right = 8
+        Margins.Bottom = 0
+        Align = alTop
+        Alignment = taRightJustify
+        BevelOuter = bvNone
+        Caption = 'BC:'
+        Padding.Right = 8
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 10
+      end
+      object Name_AstDensity: TPanel
+        AlignWithMargins = True
+        Left = 1
+        Top = 181
+        Width = 72
+        Height = 16
+        Hint = 'Density'
+        Margins.Left = 0
+        Margins.Top = 0
+        Margins.Right = 8
+        Margins.Bottom = 0
+        Align = alTop
+        Alignment = taRightJustify
+        BevelOuter = bvNone
+        Caption = 'Density:'
+        Padding.Right = 8
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 11
+        ExplicitLeft = -1
+        ExplicitTop = 191
+      end
+    end
+    object Panel_AstUnits: TPanel
+      Left = 250
+      Top = 0
+      Width = 82
+      Height = 200
+      Align = alRight
+      Constraints.MaxWidth = 100
+      Constraints.MinWidth = 50
+      Font.Charset = DEFAULT_CHARSET
+      Font.Color = clWindowText
+      Font.Height = -11
+      Font.Name = 'Courier New'
+      Font.Style = []
+      ParentFont = False
+      TabOrder = 2
+      ExplicitHeight = 185
+      object Panel_Unit_Header: TPanel
+        Left = 1
+        Top = 1
+        Width = 80
+        Height = 20
+        Align = alTop
+        Caption = 'Unit:'
+        TabOrder = 1
+      end
+      object Unit_AstGM: TButton
+        Tag = 1
+        Left = 1
+        Top = 21
+        Width = 80
+        Height = 16
+        Align = alTop
+        Caption = 'km'#179'/s'#178
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 0
+        OnClick = UnitClick_GM
+      end
+      object Unit_AstM: TButton
+        Left = 1
+        Top = 37
+        Width = 80
+        Height = 16
+        Align = alTop
+        Caption = 'kg'
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 2
+        OnClick = UnitClick_Mass
+      end
+      object Unit_AstRa: TButton
+        Left = 1
+        Top = 53
+        Width = 80
+        Height = 16
+        Align = alTop
+        Caption = 'km'
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 3
+        OnClick = UnitClick_Dist
+      end
+      object Unit_AstD: TButton
+        Left = 1
+        Top = 101
+        Width = 80
+        Height = 16
+        Align = alTop
+        Caption = 'km'
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 4
+        OnClick = UnitClick_Dist
+      end
+      object Unit_AstAlbedo: TButton
+        Left = 1
+        Top = 165
+        Width = 80
+        Height = 16
+        Align = alTop
+        Enabled = False
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 5
+      end
+      object Unit_AstH: TButton
+        Left = 1
+        Top = 149
+        Width = 80
+        Height = 16
+        Align = alTop
+        Enabled = False
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 6
+      end
+      object Unit_AstBC: TButton
+        Tag = 1
+        Left = 1
+        Top = 133
+        Width = 80
+        Height = 16
+        Align = alTop
+        Caption = 'kg/km'#178
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 7
+        OnClick = UnitClick_BC
+      end
+      object Unit_AstAMRAT: TButton
+        Tag = 1
+        Left = 1
+        Top = 117
+        Width = 80
+        Height = 16
+        Align = alTop
+        Caption = 'km'#178'/kg'
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 8
+        OnClick = UnitClick_IBC
+      end
+      object Unit_AstRc: TButton
+        Left = 1
+        Top = 85
+        Width = 80
+        Height = 16
+        Align = alTop
+        Caption = 'km'
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 9
+        OnClick = UnitClick_Dist
+      end
+      object Unit_AstRb: TButton
+        Left = 1
+        Top = 69
+        Width = 80
+        Height = 16
+        Align = alTop
+        Caption = 'km'
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 10
+        OnClick = UnitClick_Dist
+      end
+      object Unit_AstDensity: TButton
+        Left = 1
+        Top = 181
+        Width = 80
+        Height = 16
+        Align = alTop
+        Caption = 'g/cm'#179
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 11
+        OnClick = UnitClick_Dens
+        ExplicitLeft = 6
+        ExplicitTop = 203
+      end
+    end
+    object Panel_AstValues: TPanel
+      Left = 85
+      Top = 0
+      Width = 162
+      Height = 200
+      Margins.Bottom = 0
+      Align = alClient
+      Alignment = taLeftJustify
+      BevelOuter = bvNone
+      Font.Charset = DEFAULT_CHARSET
+      Font.Color = clWindowText
+      Font.Height = -11
+      Font.Name = 'Courier New'
+      Font.Style = []
+      ParentFont = False
+      TabOrder = 1
+      ExplicitHeight = 185
+      object Panel_Value_Header: TPanel
+        Left = 0
+        Top = 0
+        Width = 162
+        Height = 20
+        Hint = 'Press to switch between momentary and average values'
+        Align = alTop
+        Caption = 'Value:'
+        Font.Charset = DEFAULT_CHARSET
+        Font.Color = clWindowText
+        Font.Height = -11
+        Font.Name = 'Courier New'
+        Font.Style = []
+        ParentFont = False
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 0
+      end
+      object Value_AstRa: TEdit
+        Left = 0
+        Top = 52
+        Width = 162
+        Height = 16
+        Hint = 'Radius (a)'
+        Align = alTop
+        BevelEdges = []
+        BevelInner = bvNone
+        BevelOuter = bvNone
+        BorderStyle = bsNone
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 1
+        OnKeyPress = NumericOnlyKeyPress
+      end
+      object Value_AstRb: TEdit
+        Left = 0
+        Top = 68
+        Width = 162
+        Height = 16
+        Hint = 'Radius (b)'
+        Align = alTop
+        BevelEdges = []
+        BevelInner = bvNone
+        BevelOuter = bvNone
+        BorderStyle = bsNone
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 2
+        OnKeyPress = NumericOnlyKeyPress
+      end
+      object Value_AstRc: TEdit
+        Left = 0
+        Top = 84
+        Width = 162
+        Height = 16
+        Hint = 'Radius (c)'
+        Align = alTop
+        BevelEdges = []
+        BevelInner = bvNone
+        BevelOuter = bvNone
+        BorderStyle = bsNone
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 3
+        OnKeyPress = NumericOnlyKeyPress
+      end
+      object Value_AstD: TEdit
+        Left = 0
+        Top = 100
+        Width = 162
+        Height = 16
+        Hint = 'Diameter'
+        Align = alTop
+        BevelEdges = []
+        BevelInner = bvNone
+        BevelOuter = bvNone
+        BorderStyle = bsNone
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 4
+        OnKeyPress = NumericOnlyKeyPress
+      end
+      object Value_AstH: TEdit
+        Left = 0
+        Top = 148
+        Width = 162
+        Height = 16
+        Hint = 'Absolute magnitude'
+        Align = alTop
+        BevelEdges = []
+        BevelInner = bvNone
+        BevelOuter = bvNone
+        BorderStyle = bsNone
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 5
+        OnKeyPress = NumericOnlyKeyPress
+      end
+      object Value_AstGM: TEdit
+        Left = 0
+        Top = 20
+        Width = 162
+        Height = 16
+        Hint = 'Gravitational parameter'
+        Align = alTop
+        BevelEdges = []
+        BevelInner = bvNone
+        BevelOuter = bvNone
+        BorderStyle = bsNone
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 6
+        OnKeyPress = NumericOnlyKeyPress
+      end
+      object Value_AstM: TEdit
+        Left = 0
+        Top = 36
+        Width = 162
+        Height = 16
+        Hint = 'Mass'
+        Align = alTop
+        BevelEdges = []
+        BevelInner = bvNone
+        BevelOuter = bvNone
+        BorderStyle = bsNone
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 7
+        OnKeyPress = NumericOnlyKeyPress
+        ExplicitLeft = -1
+        ExplicitTop = 42
+      end
+      object Value_AstAMRAT: TEdit
+        Left = 0
+        Top = 116
+        Width = 162
+        Height = 16
+        Hint = 'Albedo (the fraction of sunlight reflected by the surface)'
+        Align = alTop
+        BevelEdges = []
+        BevelInner = bvNone
+        BevelOuter = bvNone
+        BorderStyle = bsNone
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 8
+        OnKeyPress = NumericOnlyKeyPress
+      end
+      object Value_AstBC: TEdit
+        Left = 0
+        Top = 132
+        Width = 162
+        Height = 16
+        Hint = 'Albedo (the fraction of sunlight reflected by the surface)'
+        Align = alTop
+        BevelEdges = []
+        BevelInner = bvNone
+        BevelOuter = bvNone
+        BorderStyle = bsNone
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 9
+        OnKeyPress = NumericOnlyKeyPress
+      end
+      object Value_AstAlbedo: TEdit
+        Left = 0
+        Top = 164
+        Width = 162
+        Height = 16
+        Hint = 'Albedo (the fraction of sunlight reflected by the surface)'
+        Align = alTop
+        BevelEdges = []
+        BevelInner = bvNone
+        BevelOuter = bvNone
+        BorderStyle = bsNone
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 10
+        OnDblClick = Value_AstAlbedoDblClick
+        OnKeyPress = NumericOnlyKeyPress
+      end
+      object Value_AstDensity: TEdit
+        Left = 0
+        Top = 180
+        Width = 162
+        Height = 16
+        Hint = 'Density'
+        Align = alTop
+        BevelEdges = []
+        BevelInner = bvNone
+        BevelOuter = bvNone
+        BorderStyle = bsNone
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 11
+        OnDblClick = Value_AstDensityDblClick
+        OnKeyPress = NumericOnlyKeyPress
+        ExplicitLeft = -3
+        ExplicitTop = 200
+      end
+    end
+  end
+  object CompBtn: TButton
+    Left = 0
+    Top = 200
+    Width = 332
+    Height = 25
+    Align = alTop
+    Caption = '&Compute'
+    TabOrder = 1
+    OnClick = CompBtnClick
+    ExplicitTop = 185
+  end
+  object AcceptBtn: TButton
+    Left = 0
+    Top = 238
+    Width = 332
+    Height = 25
+    Align = alBottom
+    Caption = '&Accept'
+    ModalResult = 1
+    TabOrder = 2
+    ExplicitTop = 226
+  end
+end

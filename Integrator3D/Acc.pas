@@ -217,7 +217,7 @@ var
   Btn: TButton;
 begin
   Btn := TButton(Sender);
-  Btn.Tag := (Btn.Tag + 1) mod Length(CAPS_ACC);
+  Btn.Tag := (Btn.Tag + 1) mod 5; //Length(CAPS_ACC);
   Btn.Caption := CAPS_ACC[Btn.Tag];
   Btn.Hint    := HINTS_ACC[Btn.Tag];
   Value_Change(Sender);
@@ -252,9 +252,9 @@ var
   i: Int64;
   x: Double;
 const
-  SF: array[0..4] of Double = (1e9, 1e6, 1e3, 1/9.81e-3, 1.0);
+  SF: array[0..6] of Double = (1e9, 1e6, 1e3, 1/9.81e-3, 1.0, 1/AUPTAU2_TO_KMPS2, 1/AUPD2_TO_KMPS2);   // km/s^2 -> display unit; tag5=AU/tau^2, tag6=AU/day^2 (must be km/s^2->unit, i.e. the RECIPROCAL of *_TO_KMPS2)
 begin
-  i:=Length(SF);
+  i:=5; //Length(SF);
   repeat
    i:=i-1;
    x:=A*SF[i];
@@ -266,13 +266,13 @@ procedure TAccForm.Value_Change(Sender: TObject);
 var
   A: Double;
 const
-  SF: array[0..4] of Double = (1e-9, 1e-6, 1e-3, 9.81e-3, 1.0);
+  SF: array[0..6] of Double = (1e-9, 1e-6, 1e-3, 9.81e-3, 1.0, AUPTAU2_TO_KMPS2, AUPD2_TO_KMPS2);   // input unit -> km/s^2; tag5=AU/tau^2, tag6=AU/day^2 (AU/day^2 = AUPD2_TO_KMPS2 km/s^2)
   SS: array[0..5] of Double = (1.0, 1.0, 1.0, -1.0, -1.0, -1.0);
   SM: array[0..5] of TAccMode = (xaPrograde, xaNormal, xaRadial, xaPrograde, xaNormal, xaRadial);
 begin
   try
    A:=StrToFloat(Value_Acc.Text)*SF[Unit_Acc.Tag]*SS[Value_Mode.ItemIndex];
-   if (A = 0.0) or IsNan(A) or IsInfinite(A) or (Abs(A)>10.0) then raise Exception.Create('Invalid value.');
+   if (A = 0.0) or IsNan(A) or IsInfinite(A) then raise Exception.Create('Invalid value.');
    if CBRelative.Checked then A:=A/MainForm.TimeAcceleration;
    DisplayAcc(A);
    Acc.Magnitude:=A;

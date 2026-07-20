@@ -108,7 +108,7 @@
         <DCC_Namespace>Winapi;System.Win;Data.Win;Datasnap.Win;Web.Win;Soap.Win;Xml.Win;$(DCC_Namespace)</DCC_Namespace>
         <BT_BuildType>Debug</BT_BuildType>
         <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
-        <VerInfo_Keys>CompanyName=galahad2069;FileDescription=Integrator3D;FileVersion=1.0.5.0;InternalName=Integrator3D;LegalCopyright=Copyright © 2026 galahad2069. Free and open-source software (MIT License).;LegalTrademarks=;OriginalFilename=Integrator3D.exe;ProgramID=com.embarcadero.$(MSBuildProjectName);ProductName=Solar System Visualiser &amp; Numerical Integrator;ProductVersion=1.0.5.0;Comments=Uses JPL DE440 ephemerides. Gauss-Radau IAS15 integrator based on the ReBOUND package. RKN11B integrator based on KSP Principia mod. DP87 integrator based on the libode library. Written in Embarcadero® Delphi 12.</VerInfo_Keys>
+        <VerInfo_Keys>CompanyName=galahad2069;FileDescription=Integrator3D;FileVersion=1.0.6.0;InternalName=Integrator3D;LegalCopyright=Copyright © 2026 galahad2069. Free and open-source software (MIT License).;LegalTrademarks=;OriginalFilename=Integrator3D.exe;ProgramID=com.embarcadero.$(MSBuildProjectName);ProductName=Solar System Visualiser &amp; Numerical Integrator;ProductVersion=1.0.6.0;Comments=Uses JPL DE440 ephemerides. Gauss-Radau IAS15 integrator based on the ReBOUND package. RKN11B integrator based on KSP Principia mod. DP87 integrator based on the libode library. Written in Embarcadero® Delphi 12.</VerInfo_Keys>
         <VerInfo_Locale>1033</VerInfo_Locale>
         <Manifest_File>$(BDS)\bin\default_app.manifest</Manifest_File>
         <Icon_MainIcon>$(ProjectName).Artwork\Windows\AppIcon.ico</Icon_MainIcon>
@@ -116,7 +116,7 @@
         <UWP_DelphiLogo44>$(ProjectName).Artwork\Windows\Uwp_44.png</UWP_DelphiLogo44>
         <UWP_DelphiLogo150>$(ProjectName).Artwork\Windows\Uwp_150.png</UWP_DelphiLogo150>
         <AppDPIAwarenessMode>none</AppDPIAwarenessMode>
-        <VerInfo_Release>5</VerInfo_Release>
+        <VerInfo_Release>6</VerInfo_Release>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_1)'!=''">
         <DCC_Define>AVX2;DEBUG;$(DCC_Define)</DCC_Define>
@@ -136,9 +136,9 @@
         <AppDPIAwarenessMode>PerMonitorV2</AppDPIAwarenessMode>
         <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
         <VerInfo_Locale>1033</VerInfo_Locale>
-        <VerInfo_Keys>CompanyName=galahad2069;FileDescription=Integrator3D;FileVersion=1.0.5.0;InternalName=Integrator3D;LegalCopyright=Copyright © 2026 galahad2069. Free and open-source software (MIT License).;LegalTrademarks=;OriginalFilename=Integrator3D.exe;ProgramID=$(MSBuildProjectName);ProductName=Solar System Visualiser &amp; Numerical Integrator;ProductVersion=1.0.5.0;Comments=Uses JPL DE440 ephemerides. Gauss-Radau IAS15 integrator based on the ReBOUND package. RKN11B integrator based on KSP Principia mod. DP87 integrator based on the libode library. Written in Embarcadero® Delphi 12.</VerInfo_Keys>
+        <VerInfo_Keys>CompanyName=galahad2069;FileDescription=Integrator3D;FileVersion=1.0.6.0;InternalName=Integrator3D;LegalCopyright=Copyright © 2026 galahad2069. Free and open-source software (MIT License).;LegalTrademarks=;OriginalFilename=Integrator3D.exe;ProgramID=$(MSBuildProjectName);ProductName=Solar System Visualiser &amp; Numerical Integrator;ProductVersion=1.0.6.0;Comments=Uses JPL DE440 ephemerides. Gauss-Radau IAS15 integrator based on the ReBOUND package. RKN11B integrator based on KSP Principia mod. DP87 integrator based on the libode library. Written in Embarcadero® Delphi 12.</VerInfo_Keys>
         <Icon_MainIcon>$(ProjectName).Artwork\Windows\AppIcon.ico</Icon_MainIcon>
-        <VerInfo_Release>5</VerInfo_Release>
+        <VerInfo_Release>6</VerInfo_Release>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_2)'!=''">
         <DCC_LocalDebugSymbols>false</DCC_LocalDebugSymbols>
@@ -155,8 +155,8 @@
         <AppDPIAwarenessMode>PerMonitorV2</AppDPIAwarenessMode>
         <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
         <Icon_MainIcon>$(ProjectName).Artwork\Windows\AppIcon.ico</Icon_MainIcon>
-        <VerInfo_Keys>CompanyName=galahad2069;FileDescription=Integrator3D;FileVersion=1.0.5.0;InternalName=Integrator3D;LegalCopyright=Copyright © 2026 galahad2069. Free and open-source software (MIT License).;LegalTrademarks=;OriginalFilename=Integrator3D.exe;ProgramID=$(MSBuildProjectName);ProductName=Solar System Visualiser &amp; Numerical Integrator;ProductVersion=1.0.5.0;Comments=Uses JPL DE440 ephemerides. Gauss-Radau IAS15 integrator based on the ReBOUND package. RKN11B integrator based on KSP Principia mod. DP87 integrator based on the libode library. Written in Embarcadero® Delphi 12.</VerInfo_Keys>
-        <VerInfo_Release>5</VerInfo_Release>
+        <VerInfo_Keys>CompanyName=galahad2069;FileDescription=Integrator3D;FileVersion=1.0.6.0;InternalName=Integrator3D;LegalCopyright=Copyright © 2026 galahad2069. Free and open-source software (MIT License).;LegalTrademarks=;OriginalFilename=Integrator3D.exe;ProgramID=$(MSBuildProjectName);ProductName=Solar System Visualiser &amp; Numerical Integrator;ProductVersion=1.0.6.0;Comments=Uses JPL DE440 ephemerides. Gauss-Radau IAS15 integrator based on the ReBOUND package. RKN11B integrator based on KSP Principia mod. DP87 integrator based on the libode library. Written in Embarcadero® Delphi 12.</VerInfo_Keys>
+        <VerInfo_Release>6</VerInfo_Release>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_3)'!=''">
         <DCC_LocalDebugSymbols>false</DCC_LocalDebugSymbols>
@@ -175,8 +175,8 @@ $(PostBuildEvent)]]></PostBuildEvent>
         <AppDPIAwarenessMode>PerMonitorV2</AppDPIAwarenessMode>
         <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
         <Icon_MainIcon>$(ProjectName).Artwork\Windows\AppIcon.ico</Icon_MainIcon>
-        <VerInfo_Keys>CompanyName=galahad2069;FileDescription=Integrator3D;FileVersion=1.0.5.0;InternalName=Integrator3D;LegalCopyright=Copyright © 2026 galahad2069. Free and open-source software (MIT License).;LegalTrademarks=;OriginalFilename=Integrator3D-compatible.exe;ProgramID=$(MSBuildProjectName);ProductName=Solar System Visualiser &amp; Numerical Integrator;ProductVersion=1.0.5.0;Comments=Compatibility (non-AVX2) build for CPUs without AVX2/FMA3. Uses JPL DE440 ephemerides. Gauss-Radau IAS15 integrator based on the ReBOUND package. RKN11B integrator based on KSP Principia mod. DP87 integrator based on the libode library. Written in Embarcadero® Delphi 12.</VerInfo_Keys>
-        <VerInfo_Release>5</VerInfo_Release>
+        <VerInfo_Keys>CompanyName=galahad2069;FileDescription=Integrator3D;FileVersion=1.0.6.0;InternalName=Integrator3D;LegalCopyright=Copyright © 2026 galahad2069. Free and open-source software (MIT License).;LegalTrademarks=;OriginalFilename=Integrator3D-compatible.exe;ProgramID=$(MSBuildProjectName);ProductName=Solar System Visualiser &amp; Numerical Integrator;ProductVersion=1.0.6.0;Comments=Compatibility (non-AVX2) build for CPUs without AVX2/FMA3. Uses JPL DE440 ephemerides. Gauss-Radau IAS15 integrator based on the ReBOUND package. RKN11B integrator based on KSP Principia mod. DP87 integrator based on the libode library. Written in Embarcadero® Delphi 12.</VerInfo_Keys>
+        <VerInfo_Release>6</VerInfo_Release>
     </PropertyGroup>
     <ItemGroup>
         <DelphiCompile Include="$(MainSource)">
@@ -202,6 +202,10 @@ $(PostBuildEvent)]]></PostBuildEvent>
             <Form>AccForm</Form>
         </DCCReference>
         <DCCReference Include="..\LIB\Chebyshev.pas"/>
+        <DCCReference Include="Hlp.pas">
+            <Form>HlpForm</Form>
+            <FormType>dfm</FormType>
+        </DCCReference>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>
@@ -244,9 +248,9 @@ $(PostBuildEvent)]]></PostBuildEvent>
                         <Overwrite>true</Overwrite>
                     </Platform>
                 </DeployFile>
-                <DeployFile LocalName="Win64\Debug\Integrator3D.rsm" Configuration="Debug" Class="DebugSymbols">
+                <DeployFile LocalName="Win64\Release\Integrator3D.exe" Configuration="Release" Class="ProjectOutput">
                     <Platform Name="Win64">
-                        <RemoteName>Integrator3D.rsm</RemoteName>
+                        <RemoteName>Integrator3D.exe</RemoteName>
                         <Overwrite>true</Overwrite>
                     </Platform>
                 </DeployFile>
