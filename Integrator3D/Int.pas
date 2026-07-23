@@ -41,10 +41,13 @@ type
     ToleranceSpin: TSpinButton;
     CBprec0: TCheckBox;
     CBprec2: TCheckBox;
-    CBprec1: TCheckBox;
     CBprec3: TCheckBox;
     SaveIntBtn: TButton;
     CBprec4: TCheckBox;
+    Pprec1: TPanel;
+    CBprec1: TCheckBox;
+    RBprec1b: TRadioButton;
+    RBprec1a: TRadioButton;
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
     procedure AddBtnClick(Sender: TObject);
@@ -62,6 +65,7 @@ type
     procedure FPSSpinUpClick(Sender: TObject);
     procedure SpinPanelResize(Sender: TObject);
     procedure SettingsGroupMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
+    procedure CBprec1Click(Sender: TObject);
   private
     FIntegrationNames: array of string;
     FIntegrationStates: TState4DArray;
@@ -129,7 +133,7 @@ begin
   Reset;
   SetLength(IntegrationTime, 1);
   SetLength(IntegrationCoef, 1);
-  IntegrationCoef[0]:=1.0;
+  IntegrationCoef[0]:=IntegrationCoef_Leapfrog2[0];   // Verlet2 startup default; the literal lives only in CelestialMechanics
   IntegrationModeSelected:=INT_VERLET2;
   IntegrationMode:=INT_VERLET2;
   // Let the CBprec* checkboxes show hints even while Enabled=False: a disabled window is skipped by
@@ -492,6 +496,11 @@ begin
   SetLength(IntegrationCSX, Count);
   SetLength(IntegrationCSV, Count);
   ClearRadauState;
+end;
+
+procedure TIntForm.CBprec1Click(Sender: TObject);
+begin
+  Pprec1.Tag:=Ord(CBprec1.Checked)*((Ord(RBprec1a.Checked) shl 2) + (Ord(RBprec1b.Checked) shl 3));
 end;
 
 procedure TIntForm.ClearRadauState;
@@ -964,80 +973,30 @@ begin
 end;
 
 procedure TIntForm.IntegrationModeChange;
-// this procedure can only be called from inside the rendering thread
-// integration coefficients are stored backwards so index [0] is always 1 and it belongs to the last step
-// 0, 1/4, 3/8, 12/13, 1, 1/2
+// this procedure can only be called from inside the rendering thread.
+// The node-time coefficients are COPIED from the IntegrationCoef_* tables in CelestialMechanics (the single
+// source of truth) -- no literals live here. FSAL methods store them "backwards" so [0] is the c=1 (last/FSAL)
+// node; GaussRadau15 is the exception, [0]=0 (the c=0 node), which makes AdvanceScene's FT:=IntegrationTime[0]
+// a no-op and leaves FT at the step start.
 var
   i: Int64;
+  procedure CopyCoef(const src: array of Double);   // src -> IntegrationCoef (already sized to ModeBox.Tag = Length(src))
+  var k: Integer;
+  begin
+    for k := 0 to High(src) do IntegrationCoef[k] := src[k];
+  end;
 begin
   SetLength(IntegrationTime, ModeBox.Tag);
   SetLength(IntegrationCoef, ModeBox.Tag);
   SetTmpArrays(Length(IntegrationS), IntegrationModeSelected);
   SetRadauArrays(Length(IntegrationS));
-  IntegrationCoef[ 0]:=1.0;   // INT_VERLET2
   case IntegrationModeSelected of
-   INT_MCLACHLAN4:
-        begin
-         IntegrationCoef[ 1]:=0.487325057100486480;
-         IntegrationCoef[ 2]:=0.608253293205081680;
-         IntegrationCoef[ 3]:=0.205177661542286380;
-        end;
-{   INT_RUNGEKUTTA5:
-       begin
-         IntegrationCoef[ 1]:=8.0/9.0;
-         IntegrationCoef[ 2]:=0.8;
-         IntegrationCoef[ 3]:=0.3;
-         IntegrationCoef[ 4]:=0.2;
-        end;}
-   INT_DORMANDPRINCE54:
-        begin
-         IntegrationCoef[ 1]:=8.0/9.0;
-         IntegrationCoef[ 2]:=0.8;
-         IntegrationCoef[ 3]:=0.3;
-         IntegrationCoef[ 4]:=0.2;
-        end;
-   INT_DORMANDPRINCE87:
-        begin
-         IntegrationCoef[ 1]:=1201146811.0/1299019798;
-         IntegrationCoef[ 2]:=13.0/20;
-         IntegrationCoef[ 3]:=5490023248.0/9719169821;
-         IntegrationCoef[ 4]:=93.0/200;
-         IntegrationCoef[ 5]:=59.0/400;
-	       IntegrationCoef[ 6]:=3.0/8;
-         IntegrationCoef[ 7]:=5.0/16;
-         IntegrationCoef[ 8]:=1.0/8;
-         IntegrationCoef[ 9]:=1.0/12;
-         IntegrationCoef[10]:=1.0/18;
-        end;
-   INT_BLANESMOANMCLACHLAN6:
-        begin // Blanes-Moan SRKN_11^6: 11 eval nodes c1..c11 (cumulative drift sums), mapped
-              // P[idx] = c(11-idx) so [0]=c11=1.0 (set above), [10]=c1. See BlanesMoanMcLachlan6.
-         IntegrationCoef[ 1]:=0.87677022405372900;
-         IntegrationCoef[ 2]:=0.58621642625417100;
-         IntegrationCoef[ 3]:=0.71326563887958800;
-         IntegrationCoef[ 4]:=0.95959739994166300;
-         IntegrationCoef[ 5]:=0.60238852714573500;
-         IntegrationCoef[ 6]:=0.39761147285426500;
-         IntegrationCoef[ 7]:=0.04040260005833700;
-         IntegrationCoef[ 8]:=0.28673436112041200;
-         IntegrationCoef[ 9]:=0.41378357374582900;
-         IntegrationCoef[10]:=0.12322977594627100;
-        end;
-   INT_GAUSSRADAU15:
-       begin // GaussRadau15 (IAS15) — nodes are the 8 Gauss-Radau spacings h[0..7].
-        // Unlike the FSAL integrators, index [0] is the c=0 node (P[0] at t0), not c=1,
-        // so PerturberStates[k] maps directly to GaussRadau15's P[k]. This also makes
-        // the FT:=IntegrationTime[0] line in AdvanceScene a no-op (h[0]=0), leaving FT
-        // at the step start for correct re-sampling on rejection; case INT_GAUSSRADAU15 advances FT.
-         IntegrationCoef[ 0]:=0.0;
-         IntegrationCoef[ 1]:=0.0562625605369221464656521910318;
-         IntegrationCoef[ 2]:=0.180240691736892364987579942780;
-         IntegrationCoef[ 3]:=0.352624717113169637373907769648;
-         IntegrationCoef[ 4]:=0.547153626330555383001448554766;
-         IntegrationCoef[ 5]:=0.734210177215410531523210605558;
-         IntegrationCoef[ 6]:=0.885320946839095768090359771030;
-         IntegrationCoef[ 7]:=0.977520613561287501891174488626;
-        end;
+   INT_VERLET2:              CopyCoef(IntegrationCoef_Leapfrog2);
+   INT_MCLACHLAN4:           CopyCoef(IntegrationCoef_McLachlan4);
+   INT_DORMANDPRINCE54:      CopyCoef(IntegrationCoef_DormandPrince54);
+   INT_DORMANDPRINCE87:      CopyCoef(IntegrationCoef_DormandPrince87);
+   INT_BLANESMOANMCLACHLAN6: CopyCoef(IntegrationCoef_BlanesMoanMcLachlan6);   // P[idx]=c(11-idx): [0]=c11=1.0 .. [10]=c1
+   INT_GAUSSRADAU15:         CopyCoef(IntegrationCoef_GaussRadau15);            // [0]=0 (c=0 node) => FT:=IntegrationTime[0] is a no-op
   end;
   SetLength(MainForm.States, IntForm.ModeBox.Tag);
   for i:=0 to IntForm.ModeBox.Tag-1 do if Length(MainForm.States[i])<>MainForm.BSPXFile.DescCount then
@@ -1056,9 +1015,13 @@ end;
 
 procedure TIntForm.ModeBoxClick(Sender: TObject);
 const
-// dimension is the number of PerturberState arrays needed
-// Leap Mc4 DP54 BMM6 DP87 Radau15
-  Dimension: array[INT_VERLET2..INT_GAUSSRADAU15] of Int64 = (1,  4,  5,  11,  11,  8);
+  // dimension = the number of PerturberState snapshots (one per node-time coefficient) each mode needs.
+  // Taken from the CelestialMechanics IntegrationCoef_* table lengths (Length is a const-expr function),
+  // so it can never drift from the coefficient tables.  Order = INT_VERLET2..INT_GAUSSRADAU15.
+  Dimension: array[INT_VERLET2..INT_GAUSSRADAU15] of Int64 =
+    (Length(IntegrationCoef_Leapfrog2),            Length(IntegrationCoef_McLachlan4),
+     Length(IntegrationCoef_DormandPrince54),      Length(IntegrationCoef_BlanesMoanMcLachlan6),
+     Length(IntegrationCoef_DormandPrince87),      Length(IntegrationCoef_GaussRadau15));
 begin
   // ModeBox.Tag (the perturber-snapshot count) and IntegrationModeSelected (the integrator) are
   // read together by IntegrationModeChange on the render thread to size PerturberStates vs pick
@@ -1070,16 +1033,19 @@ begin
   try
    ModeBox.Tag:=Dimension[ModeBox.ItemIndex];
    IntegrationModeSelected:=ModeBox.ItemIndex;
-   CBPrec0.Enabled:=False;
-   CBPrec1.Enabled:=(ModeBox.ItemIndex=INT_GAUSSRADAU15);
-   CBPrec2.Enabled:=False;
-   CBPrec3.Enabled:=(ModeBox.ItemIndex=INT_GAUSSRADAU15);
-   CBPrec4.Enabled:=(ModeBox.ItemIndex=INT_GAUSSRADAU15);
+   CBprec0.Enabled:=(ModeBox.ItemIndex=INT_DORMANDPRINCE54) or (ModeBox.ItemIndex=INT_DORMANDPRINCE87) or (ModeBox.ItemIndex=INT_GAUSSRADAU15);   // zonal gravity (m=0): DP + IAS15
+   CBprec1.Enabled:=(ModeBox.ItemIndex=INT_GAUSSRADAU15);   // tesseral gravity (m>=1): IAS15 only
+   RBprec1a.Enabled:=CBprec1.Enabled;
+   RBprec1b.Enabled:=CBprec1.Enabled;
+   CBprec1Click(CBprec1);
+   CBprec2.Enabled:=False;
+   CBprec3.Enabled:=(ModeBox.ItemIndex=INT_GAUSSRADAU15);
+   CBprec4.Enabled:=(ModeBox.ItemIndex=INT_GAUSSRADAU15);
    CBprec0.Checked:=(ModeBox.ItemIndex=INT_DORMANDPRINCE54) or (ModeBox.ItemIndex=INT_DORMANDPRINCE87) or (ModeBox.ItemIndex=INT_GAUSSRADAU15);
-   CBPrec1.Checked:=False;
+   CBprec1.Checked:=False;
    CBprec2.Checked:=(ModeBox.ItemIndex=INT_GAUSSRADAU15);
-   CBPrec3.Checked:=False;
-   CBPrec4.Checked:=False;
+   CBprec3.Checked:=False;
+   CBprec4.Checked:=False;
   finally
    FPublicLock.Release;
   end;

@@ -179,6 +179,7 @@ type
     FDistUnits: array of Double;
     FColors: array of TColorRec;
     FSpeeds: array of Int64;
+    FMinorViewItem: TMenuItem;   // the "Minor body view" PMBarycenter item (Tag=MINOR_VIEW_TAG); enable state tracked by UpdateMinorViewEnabled
     FSkyTexture:  GLuint;
     FSkyProgram:  GLuint;
     FSkyVBO:      GLuint;
@@ -283,6 +284,7 @@ type
     //FSS: Double;   // scratch scalar shown in the title bar; currently the PN SoA/AoS validation diff (see AdvanceScene / UpdateTitleBar)
     procedure RebuildCamCenterMenu(PreserveTarget: Boolean = False);   // public: IntForm calls it (True) when the active integration set changes
     procedure SelectCamCenter(id: Int64);              // point PMCamCenter at the leaf Tag=id (checks + Tag); root/FBarycenter if absent
+    procedure UpdateMinorViewEnabled;                  // refresh FMinorViewItem.Enabled from the current FBarycenter + camera centre
     procedure RebuildAccMenu;          // public: rebuild PMAcc's children from the active integration set (IntForm calls it on any change)
     procedure UnregisterOscForm(Form: TOscForm);
     procedure TakeSnapshot(var Snap: TState4DArray);
@@ -349,7 +351,11 @@ const
    160000.0,   // 8  Neptune
    8000.0,     // 9  Pluto
    AU_KM,      // 10 Sun
-   10000.0);   // 11 generic
+   10000.0);   // 11 generic (also the km-scale for a minor-body view)
+
+  // Sentinel Tag for the "Minor body view" PMBarycenter item: not a valid TargetID (>=0), so it can only mean the
+  // special item. PMBarycenterClick detects it and adopts the current camera centre as FBarycenter (see there).
+  MINOR_VIEW_TAG = -1000;
 
   GL_ARRAY_BUFFER              = $8892;
   GL_STATIC_DRAW               = $88E4;
@@ -686,19 +692,29 @@ begin
   while (p <> nil) and (p <> PMCamCenter) do begin p.Checked := True; p := p.Parent; end;
   PMCamCenter.Tag := mi.Tag;
   FCamOrphaned := False;   // the user has chosen a centre: cancel any pending fall-back to the barycentre (see FreezeIntegrand/DrawFrozen)
+  UpdateMinorViewEnabled;   // camera centre changed -> the minor-body item may become (un)offerable
 end;
 
 procedure TMainForm.PMBarycenterClick(Sender: TObject);
 var
-  i: Int64;
+  i, newBary: Int64;
 begin
   if Sender is TAction then Sender:=PMBarycenter0;
   if not TMenuItem(Sender).Checked then
    begin
+    if TMenuItem(Sender).Tag = MINOR_VIEW_TAG then
+     begin
+      // "Minor body view": adopt the current camera-centre body as the barycentre (a minor body with its own
+      // descriptor but no barycentre node). The enable gate keeps this to a valid body, but re-check so a stale state
+      // or an integrand camera centre (Tag < 0, no descriptor) is a harmless no-op rather than an invalid FBarycenter.
+      if FBSPXFile.FindDesc(PMCamCenter.Tag) < 0 then Exit;
+      newBary := PMCamCenter.Tag;
+     end
+    else newBary := TMenuItem(Sender).Tag;
     PMBarycenter.Items[PMBarycenter.Tag].Checked:=False;
     TMenuItem(Sender).Checked:=True;
     PMBarycenter.Tag:=TMenuItem(Sender).MenuIndex;
-    FBarycenter:=TMenuItem(Sender).Tag;
+    FBarycenter:=newBary;
     // Rescope the camera-target menu to the new system (and reset the target to its coordinate
     // center): a target outside the system is no longer offered, and an old one is cleared.
     RebuildCamCenterMenu;
@@ -708,7 +724,11 @@ begin
     FBaryDescIdx:=FBSPXFile.FindDesc(FBarycenter);   // FBarycenter's own descriptor index (-1 = SSB, no descriptor)
     FParentBarycenter:=FBaryDescIdx;
     if FParentBarycenter>0 then FParentBarycenter:=FBSPXFile.Desc[FParentBarycenter].CenterID;
-    FDist:=4.0*DistUnits[FBarycenter]*KM2AU; FAlpha:=0.0; FDelta:=-90.0; FdAlpha:=0.0; FdDelta:=0.0;
+    // Initial camera distance: 4x the system's characteristic radius. A minor body has no DistUnits slot -> use the
+    // generic km-scale, which is what actually escapes the AU-scale float32 jitter (the whole point of this view).
+    if (FBarycenter >= Low(DistUnits)) and (FBarycenter <= High(DistUnits)) then FDist:=4.0*DistUnits[FBarycenter]*KM2AU
+    else FDist:=4.0*DistUnits[High(DistUnits)]*KM2AU;
+    FAlpha:=0.0; FDelta:=-90.0; FdAlpha:=0.0; FdDelta:=0.0;
     for i := 0 to High(FTrails) do FTrails[i].Count := 0;  FClearFrozen := True;   // signal the render thread to drop frozen-display entries (stale frame)
     PMSpeedClick(PMSpeed.Items[FSpeeds[PMBarycenter.Tag]]);
    end;
@@ -1252,29 +1272,44 @@ begin
      Item.OnClick:=PMBarycenterClick;
      PMBarycenter.Add(Item);
     end;
+   // "Minor body view": a special item that re-centres the display on the current camera-centre body (an asteroid/dwarf
+   // planet with its own descriptor but no barycentre node), at km-scale, to escape the AU-scale float32 jitter. Its
+   // sentinel Tag is handled by PMBarycenterClick; UpdateMinorViewEnabled gates when it is offered.
+   FMinorViewItem:=TMenuItem.Create(PMBarycenter);
+   FMinorViewItem.Tag:=MINOR_VIEW_TAG;
+   FMinorViewItem.Caption:='Minor body BC';
+   FMinorViewItem.OnClick:=PMBarycenterClick;
+   PMBarycenter.Add(FMinorViewItem);
    RebuildCamCenterMenu;
    RebuildRotMenu;   // build the co-rotating-frame axis menu for the initial (SSB) view
    RebuildOrbitCenterMenu;   // build the osculating-orbit-centre menu for the initial (SSB) view
    FBSPXFile.PerturberStateCenterID:=0;
-   // J2 (oblateness) close-encounter term for the integrations: assemble GJ2 from CelestialMechanics'
-   // GOblateness table (seeded DE440, overwritten by FBSPXFile.Open from the file's const section) by
-   // pointing each oblate body at its CENTER slot in this file's perturber layout. Position-only geometry,
-   // so it applies to every integrated particle -- swarm-safe. Every body the table covers now gets a
-   // figure term (Sun/Earth/Mars/Jupiter/Saturn/Uranus/Neptune), not just Earth/Jupiter/Saturn. Also locate
-   // the Sun (TargetID 10) for GSunIdx so the nongrav term (CBprec3) is correctly centred when enabled.
-   ClearGJ2;
+   // Gravity-figure close-encounter terms. GJzonal (m=0) gets EVERY oblate body's zonals (position-only, shared with the
+   // DP integrators); GJtesseral (m>=1) additionally gets the bodies with sectoral/tesseral harmonics (Earth, solids --
+   // the longitude-aware Pines path, IAS15 only). The two are disjoint in order m, so a body in both never double-counts.
+   // Assembled from CelestialMechanics' GOblateness/const tables (seeded DE440, overwritten by FBSPXFile.Open). Also
+   // locate the Sun (TargetID 10) for GSunIdx so the nongrav term (CBprec3) is correctly centred when enabled.
+   ClearGJzonal;
+   ClearGJtesseral;          // tesseral (m>=1) working set: one entry per body carrying sectoral/tesseral harmonics (Earth, solids)
    ClearGAtmosphere;         // drag working set: one entry per body with an atmosphere (AtmRho0>0), assembled below
    SetLength(GNonGrav, 0);   // per-body non-grav: Yarkovsky + drag (array of TNonGrav); AdvanceScene sizes/populates it
    for i := 0 to FBSPXFile.DescCount-1 do
     begin
      if FBSPXFile.Desc[i].TargetID = 10 then GSunIdx := i;
-     AddGJ2(FBSPXFile.Desc[i].TargetID, i);   // entry added iff this body has a figure in GOblateness
-     with FBSPXFile.BodyConst[i]^ do           // drag entry iff this body has an atmosphere (params km-converted inside)
-      AddGAtmosphere(i, Req, AtmRho0, AtmAlt0, AtmScaleH, PoleRA, PoleDec, PoleWRate);
+     AddGJzonal(FBSPXFile.Desc[i].TargetID, i);   // zonal (m=0) for every oblate body; entry added iff it has a figure in GOblateness
+     with FBSPXFile.BodyConst[i]^ do
+      begin
+       // A body with sectoral/tesseral terms ALSO gets a GJtesseral entry (its m>=1 Pines part); its zonal m=0 stays in
+       // GJzonal above, so no double-count. Gas giants (zonal-only Chi) get no tesseral entry.
+       if (GravDeg >= 2) and GravIsTesseral(Chi, Round(GravDeg)) then
+        AddGJtesseral(i, Round(GravDeg), GravRefR, PoleRA, PoleRARate, PoleDec, PoleDecRate, PoleW, PoleWRate, Chi);
+       AddGAtmosphere(i, Req, AtmRho0, AtmAlt0, AtmScaleH, PoleRA, PoleDec, PoleWRate);   // drag entry iff atmosphere (params km-converted inside)
+      end;
     end;
-   GJ2Active := True;
    SetLength(FSpeeds, PMBarycenter.Count);
-   for i:=0 to PMBarycenter.Count-1 do FSpeeds[i]:=Speeds[PMBarycenter.Items[i].Tag];
+   for i:=0 to PMBarycenter.Count-1 do
+    if PMBarycenter.Items[i].Tag = MINOR_VIEW_TAG then FSpeeds[i]:=1   // minor-body item: PMSpeed item 1 = 1 min/sec (SSB's 12 h/sec spins these small, fast bodies far too fast); its Tag is not a Speeds index
+    else FSpeeds[i]:=Speeds[PMBarycenter.Items[i].Tag];
    VecForm.Init;
    LoadLabelTextures;
    // Hand the GL context to the render thread
@@ -2839,6 +2874,17 @@ begin
   while (p <> nil) and (p <> PMCamCenter) do begin p.Checked := True; p := p.Parent; end;
   PMCamCenter.Tag := keep.Tag;
   FCamOrphaned := False;   // the centre has been moved (co-rotation follow), so don't yank it to the barycentre later; the menu itself is untouched, so FCamMenuStale stands
+  UpdateMinorViewEnabled;   // camera centre changed -> the minor-body item may become (un)offerable
+end;
+
+procedure TMainForm.UpdateMinorViewEnabled;
+// Offer "Minor body view" only when it can act: in the full SSB view (FBarycenter=0) with the camera centred on a real
+// minor body -- its own descriptor, TargetID > 10, so not SSB / a planetary barycentre / the Sun. It also stays enabled
+// while already IN such a view (FBarycenter is itself a minor body, > 10), so it reads as the current selection.
+begin
+  if (FMinorViewItem = nil) or (FBSPXFile = nil) then Exit;
+  FMinorViewItem.Enabled := (FBarycenter > 10) or
+                            ((FBarycenter = 0) and (PMCamCenter.Tag > 10) and (FBSPXFile.FindDesc(PMCamCenter.Tag) >= 0));
 end;
 
 procedure TMainForm.RebuildCamCenterMenu(PreserveTarget: Boolean);
@@ -2886,6 +2932,7 @@ begin
   // or the fade-out itself). DrawFrozen then finds nothing to do and skips its rebuild.
   FCamMenuStale := False;
   FCamOrphaned  := False;
+  UpdateMinorViewEnabled;   // barycentre/camera reset here -> refresh whether the minor-body item is offered
 end;
 
 procedure TMainForm.RenderScene;
@@ -3357,7 +3404,11 @@ begin
             end;
        INT_GAUSSRADAU15:
             begin // GaussRadau15 (IAS15) — adaptive, implicit; one accepted step per frame.
-             GJHiActive := IntForm.CBprec1.Checked;         // J3/J4 zonal harmonics (user opt-in; IAS15 only)
+             // Gravity-field degree caps (<2 = off, else max degree, clamped to GRAV_NMAX internally). Zonals (m=0, DP +
+             // IAS15): CBprec0 = deg 8 or off. Tesserals (m>=1, IAS15): Pprec1.Tag = 0 (off) / 4 (RBprec1a) / 8 (RBprec1b), gated by CBprec1.
+             if IntForm.CBprec0.Checked then GZonalMaxDeg := 8 else GZonalMaxDeg := 0;
+             GTesseralMaxDeg := IntForm.Pprec1.Tag;
+             GNodeTime  := IntForm.IntegrationTime;          // node times for AccelTesseralAll's body-fixed rotation (the same live array the perturbers are sampled at; in-frame retries update it in place)
              GDragActive := IntForm.CBprec4.Checked;        // atmospheric drag (user opt-in; IAS15 only)
              // Per-body non-grav (Yarkovsky A1/A2/A3 + atmospheric drag InvBC, one TNonGrav): copy each body's
              // record from IntForm, with CBprec3 as the SHARED global enable via .Active -- unchecked disables both.

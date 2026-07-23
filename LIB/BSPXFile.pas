@@ -19,6 +19,10 @@ const
   SPICE_J2000      = 1;    // J2000 mean equator & equinox (treated as ICRF here)
   SPICE_ECLIPJ2000 = 17;   // J2000 mean ecliptic & equinox
 
+  BSPX_CNST_LEN_V1 = 256;  // legacy const-record stride (32 doubles), before the degree-8 harmonic-field extension grew
+                           // TBSPXBodyConst to 1024 bytes. Init reads a Cnst.Len of 256 into the (byte-identical) head and
+                           // upconverts the tail to zero; the current SizeOf(TBSPXBodyConst) is the only other accepted Len.
+
 type
  TBSPXVer = packed record
    case Integer of
@@ -43,16 +47,21 @@ type
   // SS-wide trailer via variant 1. Sourced by the SPKMerge builder from gm_de440.tpc (GM),
   // header.440t (Sun/Earth J + AU/CLIGHT/BETA/GAMMA/GMS), the satellite BSP comment areas
   // (giant-planet Req/J/pole) and Horizons text (asteroid Req). See memory bspx-const-section-sources.
-  TBSPXBodyConst = packed record    // fixed 256 bytes (32 doubles), matching the TBSPXDesc stride; the
-   case Integer of                  // reserved tail leaves room to add per-body constants without a format break
-    0: (GM, Req, J2, J3, J4: Double;                     // per-body: GM (km^3/s^2), equatorial radius (km) = triaxial a, zonal harmonics
-        PoleRA, PoleDec, PoleW: Double;                  // IAU pole RA/Dec + prime meridian W at POLTIM (deg)
+  TBSPXBodyConst = packed record    // fixed 1024 bytes (128 doubles), grown from the original 256-byte (32-double) layout
+   case Integer of                  // by the degree-8 harmonic-field extension. The FIRST 32 doubles are byte-for-byte the
+    0: (GM, Req, J2, J3, J4: Double;                     // old record, so a legacy 256-byte const section loads straight into
+        PoleRA, PoleDec, PoleW: Double;                  // the head and Init upconverts the tail to zero. See BSPX_CNST_LEN_V1.
         PoleRARate, PoleDecRate, PoleWRate: Double;      // rates: RA/Dec deg/century, W deg/DAY (SPICE PCK convention)
         Rb, Rc: Double;                                  // triaxial radii RADII[1]=b, RADII[2]=c(polar), km (0 = spherical: use Req)
         AtmRho0, AtmAlt0, AtmScaleH: Double;             // exponential-atmosphere drag: rho(h)=AtmRho0*exp(-(h-AtmAlt0)/H); AtmRho0 kg/m^3, AtmAlt0/H km; 0 = no atmosphere -- 16 doubles used
-        ReservedBody: array[0..15] of Double);           // reserved -> 32 doubles total = 256 bytes
-    1: (AU, CLIGHT, BETA, GAMMA, GMS, POLTIM: Double;    // final record only: SS-wide constants (same 256-byte slot)
-        ReservedGen: array[0..25] of Double);            // reserved -> 32 doubles total = 256 bytes
+        ReservedBody: array[0..15] of Double;            // pad the head to 32 doubles = 256 bytes: the legacy stride (byte boundary the upconvert relies on)
+        // ---- harmonic-field extension (bytes 256..1023); zero in an upconverted legacy file, filled from BodyConstants at Init ----
+        GravRefR: Double;                                // reference radius the Chi coefficients are normalised to, km (0 = no field; formally distinct from Req)
+        GravDeg:  Double;                                // highest degree present in Chi (0/2/4/8); 0 = no field -> legacy J2/J3/J4 path. Double for record uniformity; holds exact small ints
+        Chi: array[0..GRAV_NCOEF-1] of Double;           // fully-normalised C̄nm/S̄nm, degrees 2..GRAV_NMAX (see CelestialMechanics.GRAV_NCOEF for the degree-major packing) -- 77 doubles
+        ReservedBody2: array[0..16] of Double);          // reserved -> 128 doubles total = 1024 bytes
+    1: (AU, CLIGHT, BETA, GAMMA, GMS, POLTIM: Double;    // final record only: SS-wide constants (same 1024-byte slot)
+        ReservedGen: array[0..121] of Double);           // reserved -> 128 doubles total = 1024 bytes
   end;
   PBSPXBodyConst = ^TBSPXBodyConst;
 
@@ -254,10 +263,11 @@ end;
 
 function TBSPXFile.Init(const FileName: string): Boolean;
 var
-  i, j, k, t: Int64;
+  i, j, k, t, dn: Int64;
+  Jz: TZonalArray;
   Stream: TFileStream;
   nameNonEmpty: Boolean;
-  t0, t1: Double;
+  t0, t1, Rz: Double;
 begin
   Close;
   Stream:=nil;
@@ -297,10 +307,22 @@ begin
    else
     begin
      if FHdr.Cnst.Num<>FHdr.Desc.Num+1 then raise Exception.Create('Corrupted file (constants/descriptor count mismatch): '+ExtractFileName(FileName));
-     if FHdr.Cnst.Len<>SizeOf(TBSPXBodyConst) then raise Exception.Create('Unsupported constants record length: '+ExtractFileName(FileName));
      if Stream.Seek(FHdr.Cnst.Ptr, soFromBeginning)<>FHdr.Cnst.Ptr then raise Exception.Create('Error seeking file: '+ExtractFileName(FileName));
      SetLength(FCnst, FHdr.Cnst.Num);
-     if Stream.Read(FCnst[0], FHdr.Cnst.Size)<>FHdr.Cnst.Size then raise Exception.Create('Error reading file: '+ExtractFileName(FileName));
+     // Two on-disk record strides are accepted, discriminated by Hdr.Cnst.Len (the self-describing record size):
+     //   current (SizeOf = 1024): full harmonic layout -> one bulk read.
+     //   legacy  (BSPX_CNST_LEN_V1 = 256): pre-extension record -> read each into the byte-identical head of a zeroed
+     //     full record, leaving the harmonic tail 0 (the reconciliation below fills it from the defaults, like any hole).
+     if FHdr.Cnst.Len=SizeOf(TBSPXBodyConst) then
+      begin if Stream.Read(FCnst[0], FHdr.Cnst.Size)<>FHdr.Cnst.Size then raise Exception.Create('Error reading file: '+ExtractFileName(FileName)); end
+     else if FHdr.Cnst.Len=BSPX_CNST_LEN_V1 then
+      for i:=0 to FHdr.Cnst.Num-1 do
+       begin
+        FillChar(FCnst[i], SizeOf(TBSPXBodyConst), 0);
+        if Stream.Read(FCnst[i], BSPX_CNST_LEN_V1)<>BSPX_CNST_LEN_V1 then raise Exception.Create('Error reading file: '+ExtractFileName(FileName));
+       end
+     else
+      raise Exception.Create('Unsupported constants record length: '+ExtractFileName(FileName));
     end;
    // Reconcile the file's GM + figure data against the shared default table (CelestialMechanics.BodyConstants):
    // holes in the descriptors/const records are filled from the defaults; where the file brings VALID data it
@@ -377,6 +399,21 @@ begin
          begin BodyConstants[k].AtmRho0:=FCnst[i].AtmRho0; BodyConstants[k].AtmAlt0:=FCnst[i].AtmAlt0; BodyConstants[k].AtmScaleH:=FCnst[i].AtmScaleH; end
         else
          begin FCnst[i].AtmRho0:=BodyConstants[k].AtmRho0; FCnst[i].AtmAlt0:=BodyConstants[k].AtmAlt0; FCnst[i].AtmScaleH:=BodyConstants[k].AtmScaleH; end;
+       // high-degree gravity field (Chi + RefRadius + GravDeg): same file-wins/hole-fills rule. A file that carries a field
+       // (GravDeg>0) wins and writes back to the table; a hole (GravDeg<=0 -- e.g. an upconverted legacy record) is filled
+       // from the table (so a legacy file still gets the gas-giant zonals). Chi feeds BOTH working sets: the m=0
+       // diagonal is unpacked into GOblateness/GJzonal below, the m>=1 block into GJtesseral at scene load.
+       if i<Length(FCnst) then
+        if FCnst[i].GravDeg>0.0 then
+         begin
+          BodyConstants[k].GravDeg:=Round(FCnst[i].GravDeg); BodyConstants[k].RefRadius:=FCnst[i].GravRefR;
+          SetLength(BodyConstants[k].Chi, GRAV_NCOEF); Move(FCnst[i].Chi[0], BodyConstants[k].Chi[0], GRAV_NCOEF*SizeOf(Double));
+         end
+        else if BodyConstants[k].GravDeg>0 then   // table has a field (length-GRAV_NCOEF Chi guaranteed by InitBodyConstants)
+         begin
+          FCnst[i].GravDeg:=BodyConstants[k].GravDeg; FCnst[i].GravRefR:=BodyConstants[k].RefRadius;
+          Move(BodyConstants[k].Chi[0], FCnst[i].Chi[0], GRAV_NCOEF*SizeOf(Double));
+         end;
       end;
     end;
    // Any invalid header GM (codes 0..10) falls back to the (now reconciled) default -> Hdr.GM[code] reads are safe.
@@ -388,10 +425,28 @@ begin
    // (index DescCount is the SS-wide trailer, left untouched).
    for i:=0 to Length(FDesc)-1 do
     if i<Length(FCnst) then FCnst[i].GM:=FDesc[i].GM;
-   // Seed the integrator's index-matched figure table (GOblateness) from the reconciled const records.
+   // Seed the integrator's index-matched zonal figure table (GOblateness) from the reconciled const records. A body with
+   // a full field carries ALL its zonals in the Chi diagonal (Jn = -C̄n0*sqrt(2n+1); C̄n0 at Chi[n*n-4]); a body with only
+   // a head figure (moons from a PCK) uses the legacy J2/J3/J4. Enter if either source has a zonal (head J2<>0 OR field).
+   // The radius handed to SetOblateness is the one the zonals are DEFINED AT, not the body's shape radius: for a full
+   // field that is GravRefR (what Chi is normalised to), for the legacy head it is Req (which the J2/J3/J4 literals are
+   // referenced to by construction). The two differ for every PutSHDefault body whose solution radius isn't its Req
+   // (Vesta 265 vs 289, Eros 16 vs 17, Ceres 470 vs 487.3, ...), and getting it wrong mis-scales the whole series
+   // by (Req/GravRefR)^n -- >100% on Vesta's degree 8. Same radius the tesseral path already uses (AddGJtesseral).
    for i:=0 to FHdr.Desc.Num-1 do
-    if FCnst[i].J2<>0.0 then
-     SetOblateness(FDesc[i].TargetID, FCnst[i].J2, FCnst[i].J3, FCnst[i].J4, FCnst[i].Req, FCnst[i].PoleRA, FCnst[i].PoleDec);
+    if (FCnst[i].J2<>0.0) or (FCnst[i].GravDeg>0.0) then
+     begin
+      FillChar(Jz, SizeOf(Jz), 0);
+      Rz:=FCnst[i].Req;
+      if FCnst[i].GravDeg>0.0 then
+       begin
+        for dn:=2 to GRAV_NMAX do Jz[dn] := -FCnst[i].Chi[dn*dn-4]*Sqrt(2.0*dn+1.0);
+        if FCnst[i].GravRefR>0.0 then Rz:=FCnst[i].GravRefR;   // malformed field (no radius) -> keep the shape radius
+       end
+      else
+       begin Jz[2]:=FCnst[i].J2; Jz[3]:=FCnst[i].J3; Jz[4]:=FCnst[i].J4; end;
+      SetOblateness(FDesc[i].TargetID, Jz, Rz, FCnst[i].PoleRA, FCnst[i].PoleDec);
+     end;
    // Dense index map of the real perturbers (GM>0). The raw state/descriptor array is index-matched and riddled
    // with non-perturbers (barycenters, TT-TDB, zero-GM bodies) at arbitrary positions; this lets the force code
    // -- and its future AVX2 kernels -- walk only genuine perturbers and pack them into a contiguous SoA buffer.
@@ -1438,9 +1493,10 @@ end;
 
 procedure SeedBodyConst(BodyID: Int64; out C: TBSPXBodyConst);
 // Seed a per-body const record from the shared default table (CelestialMechanics.BodyConstants): GM + figure
-// (Req/Rb/Rc/J2/J3/J4/pole RA/Dec) + atmosphere (Rho0/Alt0/ScaleH), the exact fields the table holds. Everything
-// else (reserved) stays 0. Bodies unknown to the table leave C fully zeroed. Replaces the former DE440BodyDefault
-// hardcoded GM table -- GM and figure now live in exactly one place (BodyConstants).
+// (Req/Rb/Rc/J2/J3/J4/pole RA/Dec) + atmosphere (Rho0/Alt0/ScaleH) + harmonic field (GravRefR/GravDeg/Chi), the
+// exact fields the table holds. Everything else (reserved) stays 0. Bodies unknown to the table leave C fully
+// zeroed. Replaces the former DE440BodyDefault hardcoded GM table -- GM and figure now live in exactly one place
+// (BodyConstants). The table is allocated lazily on first BodyConst call, so callers need no explicit init.
 var bc: PBodyConstant;
 begin
   FillChar(C, SizeOf(C), 0);
@@ -1452,6 +1508,8 @@ begin
     C.PoleRA:=bc.PoleRA; C.PoleDec:=bc.PoleDec; C.PoleW:=bc.PoleW;
     C.PoleRARate:=bc.PoleRARate; C.PoleDecRate:=bc.PoleDecRate; C.PoleWRate:=bc.PoleWRate;
     C.AtmRho0:=bc.AtmRho0; C.AtmAlt0:=bc.AtmAlt0; C.AtmScaleH:=bc.AtmScaleH;
+    C.GravRefR:=bc.RefRadius; C.GravDeg:=bc.GravDeg;   // high-degree field; Chi only when the table row carries one
+    if (bc.GravDeg>0) and (Length(bc.Chi)=GRAV_NCOEF) then Move(bc.Chi[0], C.Chi[0], GRAV_NCOEF*SizeOf(Double));
    end;
 end;
 

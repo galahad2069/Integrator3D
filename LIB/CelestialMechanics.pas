@@ -66,6 +66,13 @@ const
   DRAG_CUTOFF_SCALEH = 25.0; // AccelDragAll skips a body's atmosphere above Alt0 + this many scale heights
                              // (rho ~ e^-25 ~ 1e-11 of Rho0 there); the sqrt-free far-field gate, like J2's
 
+  // Spherical-harmonic gravity field storage shared by TBodyConstant.Chi and TBSPXFile's const record (TBSPXBodyConst.Chi).
+  // Fully-normalised C̄nm/S̄nm for degrees 2..GRAV_NMAX, S_n0 (always 0) dropped. Packed degree-major: for each n the
+  // block is [C̄n0, C̄n1,S̄n1, C̄n2,S̄n2, .., C̄nn,S̄nn] = 2n+1 entries, so degree n starts at index n*n-4 and C̄n0 lives there.
+  // Zonal bodies (gas giants) populate only the C̄n0 diagonal (C̄n0 = -Jn/sqrt(2n+1)); tesseral solids fill the whole block.
+  GRAV_NMAX  = 8;                          // highest harmonic degree a body's field can carry
+  GRAV_NCOEF = (GRAV_NMAX+1)*(GRAV_NMAX+1) - 4;   // = 77 coefficients for degrees 2..8
+
   SOLAR_MASS  = 1.0;
   JOVIAN_MASS = 1/1047.35;
   EARTH_MASS  = 1/332946.0;
@@ -102,12 +109,16 @@ type
      1: (Vals: array[0..10] of Double);   // Vals[0]=A1 .. Vals[8]=DT, Vals[9]=CR_AMRAT, Vals[10]=InvBC -- index view of the eleven Doubles above
   end;
 
-  // One oblate perturber's figure data for the zonal close-encounter terms (see AccelJ2All/AccelJHiAll).
-  TJ2Perturber = record
-    Idx:        Int64;    // this body's CENTER slot in the perturber array (TargetID 399/599/699); <0 disables
-    J2, J3, J4: Double;   // zonal harmonic coefficients (J3/J4 used only by the opt-in AccelJHiAll)
-    Req:        Double;   // equatorial reference radius the J_n are normalised to [km]
-    Pole:       TVec4D;   // unit spin axis in the ICRF integration frame
+  TZonalArray = array[0..GRAV_NMAX] of Double;   // per-body unnormalised zonals J_n; only [2..GRAV_NMAX] used ([0],[1] are 0)
+
+  // One oblate perturber's zonal (m=0) figure for the close-encounter term (see AccelZonalAll / NewtonAccelZonal).
+  // Carries every zonal J2..J8 so the degree-capped sum can stop at any degree; position-only (pole, no spin W), so
+  // this path is shared by the DP integrators as well as IAS15. Sectoral/tesseral (m>=1) terms live in TTesseralPerturber.
+  TZonalPerturber = record
+    Idx:            Int64;    // this body's CENTER slot in the perturber array (TargetID 399/599/699); <0 disables
+    Jz:             TZonalArray;   // unnormalised zonals J2..J8 (read back from the Chi diagonal, or the head J2/J3/J4 for field-less bodies)
+    Req:            Double;   // equatorial reference radius the J_n are normalised to [km]
+    Pole:           TVec4D;   // unit spin axis in the ICRF integration frame
   end;
 
   // One atmospheric perturber for the drag term (see AccelDragAll). Same descriptor-indexed working-set idea as
@@ -123,13 +134,25 @@ type
     Omega:      Double;   // signed spin rate [rad/s]; v_atm = Omega*(Pole x r)
   end;
 
-  // Canonical per-body oblateness figure, keyed by NAIF centre id -- the constant store CelestialMechanics
-  // owns (seeded by TBSPXFile.Init from the file's reconciled const records, oblate bodies only). GJ2 below is
-  // the descriptor-indexed working set the hot loop uses, assembled from this table
-  // at scene load via AddGJ2.
+  // One body's full spherical-harmonic field for the tesseral (m>=1) close-encounter term (see AccelTesseralAll).
+  // Carries the whole C̄/S̄ block plus the body-fixed rotation elements (pole precession + spin W(t)), because
+  // tesserals depend on longitude -> IAS15 only. Assembled at scene load (ClearGJtesseral + AddGJtesseral). The
+  // zonal (m=0) part of the SAME body is carried separately by TZonalPerturber, so the two never double-count.
+  TTesseralPerturber = record
+    Idx:        Int64;          // body's slot in the perturber array P[n]
+    Deg:        Int64;          // truncation degree actually stored (2..GRAV_NMAX)
+    Rref:       Double;         // reference radius the coefficients are normalised to [km]
+    PoleRA, PoleDec, PoleW: Double;               // IAU orientation at J2000 [deg]
+    PoleRARate, PoleDecRate, PoleWRate: Double;   // rates: RA/Dec deg/century, W deg/day
+    Chi:        TDynDoubleArray;                   // fully-normalised C̄nm/S̄nm (length GRAV_NCOEF)
+  end;
+
+  // Canonical per-body zonal figure, keyed by NAIF centre id -- the constant store CelestialMechanics owns (seeded by
+  // TBSPXFile.Init from the file's reconciled const records). GJzonal below is the descriptor-indexed working set the
+  // hot loop uses, assembled from this table at scene load via AddGJzonal.
   TOblateness = record
     BodyID:     Int64;    // NAIF centre id (10=Sun, 399=Earth, 499/599/699/799/899)
-    J2, J3, J4: Double;
+    Jz:         TZonalArray;   // unnormalised zonals J2..J8
     Req:        Double;
     Pole:       TVec4D;   // ICRF unit spin axis (built from pole RA/Dec by SetOblateness)
   end;
@@ -146,6 +169,11 @@ type
     AtmRho0:         Double;      // atmosphere drag model: reference mass density at AtmAlt0, kg/m^3 (0 = no atmosphere -> no drag)
     AtmAlt0:         Double;      // reference altitude above Req at which AtmRho0 holds, km (the per-body drag-regime anchor)
     AtmScaleH:       Double;      // exponential scale height H, km:  rho(h) = AtmRho0*exp(-(h-AtmAlt0)/H),  h = |r_body-centric| - Req
+    // High-degree gravity field (dormant until the Pines/higher-zonal evaluator lands). Present only for the handful of
+    // bodies with a solution; the ~1080 fieldless rows leave Chi nil (zero storage). See GRAV_NMAX/GRAV_NCOEF for packing.
+    RefRadius:       Double;      // reference radius the Chi coefficients are normalised to, km (0 = no field; formally distinct from Req)
+    GravDeg:         Int64;       // highest degree present in Chi (0/2/4/8); 0 = no field -> legacy J2/J3/J4 path only
+    Chi:             TDynDoubleArray;   // fully-normalised C̄nm/S̄nm, length GRAV_NCOEF when a field exists (nil otherwise)
   end;
   PBodyConstant = ^TBodyConstant;
 
@@ -182,19 +210,23 @@ type
   function KeplerUniv(Time, MU: Double; const Input: TState4D; var Output: TState4D): Boolean;
   function A1PN(S: TState4D; P: TState4DArray): TVec4D;
   function NonGravAccel(const Si, Sun: TState4D; const NG: TNonGrav): TVec4D;
-  function OblatenessJ2(const Si, Body: TState4D; J2, Rbody: Double; const Pole: TVec4D): TVec4D;
-  function OblatenessJHi(const Si, Body: TState4D; J3, J4, Rbody: Double; const Pole: TVec4D): TVec4D;
-  function AccelJ2All(const Si: TState4D; const P: TState4DArray): TVec4D;
-  function AccelJHiAll(const Si: TState4D; const P: TState4DArray): TVec4D;
+  function OblatenessZonal(const Si, Body: TState4D; const Jz: array of Double; MaxDeg: Int64; Rbody: Double; const Pole: TVec4D): TVec4D;   // zonal (m=0) accel of Body on Si, summed n=2..MaxDeg; position-only (pole, no spin)
+  procedure GravChiIndex(n, m: Int64; out iC, iSin: Int64);   // Chi offsets of C̄nm (iC) and S̄nm (iSin); iSin<0 for m=0 (no sine term). Packing: degree n block at n*n-4, then C̄n0,(C̄n1,S̄n1),..
+  function SphHarmAccelBF(const p: TVec4D; GM, Rref: Double; const Chi: array of Double; NDeg, MMin: Int64): TVec4D;   // C̄/S̄ field accel, BODY-FIXED in & out (Cunningham/Montenbruck-Gill, non-singular; n>=2). MMin=0 = full field, MMin=1 = tesserals only (skip the zonal m=0 -- the zonal path owns it)
+  function AccelZonalAll(const Si: TState4D; const P: TState4DArray; MaxDeg: Int64): TVec4D;   // sum the zonal (m=0) accel on Si from every body in GJzonal, degrees 2..MaxDeg (MaxDeg<2 = off). Position-only -> usable by the DP integrators too
   function AccelDragAll(const Si: TState4D; const P: TState4DArray; InvBC: Double): TVec4D;   // atmospheric drag on Si from every body in GAtmosphere (IAS15_PN only)
   function  DE440OblatenessDefault(BodyID: Int64; out J2, J3, J4, Req, PoleRA, PoleDec: Double): Boolean;  // the single, pristine source of the DE440 figure literals (seeds GOblateness AND BSPXFile's file defaults)
   function  FindOblateness(BodyID: Int64): Int64;   // index in GOblateness, or -1
-  procedure SetOblateness(BodyID: Int64; J2, J3, J4, Req, PoleRA, PoleDec: Double);  // upsert (BSPXFile.Open); pole RA/Dec in deg
+  procedure SetOblateness(BodyID: Int64; const Jz: array of Double; Req, PoleRA, PoleDec: Double);  // upsert (BSPXFile.Open); Jz = zonals J2..J8 (index n); pole RA/Dec in deg
   function  PoleEquatorMatrix(PoleRA, PoleDec: Double): TMat4D;   // ICRF -> body-equatorial rotation (apply as v*M): Z = the IAU pole at (RA,Dec) deg, X = that equator's ascending node on the ICRF equator. Use .Transpose for the inverse (body-equatorial -> ICRF)
-  procedure ClearGJ2;                               // reset the descriptor-indexed working set
-  function  AddGJ2(BodyID, Idx: Int64): Boolean;    // append a GJ2 entry from GOblateness[BodyID] (Idx = perturber slot); True if a figure exists
+  procedure ClearGJzonal;                               // reset the zonal working set
+  function  AddGJzonal(BodyID, Idx: Int64): Boolean;    // append a GJzonal entry from GOblateness[BodyID] (Idx = perturber slot); True if a figure exists
   procedure ClearGAtmosphere;                       // reset the drag working set
   function  AddGAtmosphere(Idx: Int64; Req, Rho0_kgm3, Alt0, ScaleH, PoleRA, PoleDec, PoleWRate: Double): Boolean;   // append a GAtmosphere entry if Rho0>0 (params from the body's const record); True if added
+  function  GravIsTesseral(const Chi: array of Double; Deg: Int64): Boolean;   // True if the field has any non-zero sectoral/tesseral (m>=1) coefficient (-> also gets a GJtesseral entry); False = zonal-only (GJzonal handles it)
+  procedure ClearGJtesseral;                               // reset the tesseral (full-field) working set
+  function  AddGJtesseral(Idx, Deg: Int64; Rref, PoleRA, PoleRARate, PoleDec, PoleDecRate, PoleW, PoleWRate: Double; const Chi: array of Double): Boolean;   // append a GJtesseral entry if the body carries a valid field (Deg>=2, full Chi); True if added
+  function  AccelTesseralAll(const Si: TState4D; const P: TState4DArray; NodeIdx, MaxDeg: Int64): TVec4D;   // sum the tesseral (m>=1) accel on Si from every body in GJtesseral to degree MaxDeg (MaxDeg<2 = off); NodeIdx picks GNodeTime[NodeIdx] for the body-fixed rotation (IAS15 only)
   procedure InitBodyConstants;                          // populate the merged default table on first use (idempotent; NOT run at unit init)
   function  BodyConstIndex(NAIFCode: Int64): Int64;     // index into BodyConstants, or -1; auto-inits the table
   function  BodyConst(NAIFCode: Int64): PBodyConstant;  // pointer to the entry, or nil; auto-inits
@@ -209,27 +241,38 @@ var
   // the Sun's slot in the perturber arrays P[n] (shared by all bodies -- it's a perturber, not per-object).
   GNonGrav: array of TNonGrav;
   GSunIdx:  Int64 = 0;
-  // Zonal-J2 close-encounter hook consumed by GaussRadau15 (folded into the two AccelPN call sites).
-  // GOblateness is the canonical per-body figure table (default DE440, overwritten by BSPXFile.Open). At
-  // scene load the caller does ClearGJ2 then AddGJ2(TargetID, idx) per descriptor to assemble GJ2 -- the
-  // descriptor-indexed working set the hot loop reads -- then GJ2Active := True. Left inactive the
-  // integrator is bit-for-bit its original self. GJ2 applies to every integrated body (position-only
-  // geometry, swarm-safe); nongrav is per-body via GNonGrav[i].
-  GJ2Active: Boolean = False;
-  GJHiActive: Boolean = False;         // J3/J4 higher-zonal opt-in (IAS15_PN only; see AccelJHiAll)
+  // Zonal (m=0) close-encounter hook. GOblateness is the canonical per-body figure table (default DE440, overwritten
+  // by BSPXFile.Open). At scene load the caller does ClearGJzonal then AddGJzonal(TargetID, idx) per descriptor to
+  // assemble GJzonal, and sets GZonalMaxDeg each frame from the UI. Position-only (pole, no spin) and swarm-safe, so
+  // this term is applied by the DP integrators AND IAS15. GZonalMaxDeg<2 => off; else the max degree to sum (2..this),
+  // internally clamped to GRAV_NMAX -- the UI just sets the number, so its off/deg4/deg8 granularity is its own business.
+  GZonalMaxDeg: Int64 = 0;
   // Atmospheric-drag hook (IAS15_PN only): GAtmosphere is the descriptor-indexed working set (assembled at scene
   // load via ClearGAtmosphere + AddGAtmosphere, one entry per body with an atmosphere), read by AccelDragAll at
-  // the same two AccelPN sites as the Yarkovsky/J2 terms. GDragActive is the master switch (CBprec4). Unlike J2,
-  // drag is velocity-dependent AND carries a per-integrand coefficient (GNonGrav[i].InvBC), so it lives beside
+  // the same two AccelPN sites as the Yarkovsky/zonal terms. GDragActive is the master switch (CBprec4). Unlike the
+  // zonals, drag is velocity-dependent AND carries a per-integrand coefficient (GNonGrav[i].InvBC), so it lives beside
   // AccelPN, not in the position-only DP path.
   GDragActive: Boolean = False;
 
   PN_SoA_MaxDiff: Double = 0.0;        // PN_SOA_VALIDATE: running max |AccelPN_SoA - AccelPN| component diff (expect ~0; the SoA port is bit-identical)
-  GOblateness: array of TOblateness;   // canonical per-body figure table (default DE440, file-overwritable)
-  GJ2: array of TJ2Perturber;          // descriptor-indexed working set (assembled from GOblateness at scene load)
+  GOblateness: array of TOblateness;   // canonical per-body zonal figure table (default DE440, file-overwritable)
+  GJzonal: array of TZonalPerturber;   // descriptor-indexed zonal working set (assembled from GOblateness at scene load); read by AccelZonalAll (IAS15) and NewtonAccelZonal (DP)
+  GJtesseral: array of TTesseralPerturber;   // descriptor-indexed tesseral (full-field) working set, assembled at scene load; read by AccelTesseralAll
+  GTesseralMaxDeg: Int64 = 0;          // tesseral (m>=1) max degree to sum (<2 = off; clamped to GRAV_NMAX); IAS15 only (see AccelTesseralAll)
+  GNodeTime: TDynDoubleArray;          // absolute node times (TDB s past J2000) of the current step; the driver points this at IntegrationTime[] each step, and the two AccelTesseralAll call sites pass GNodeTime[n] as T (matches the time each perturber snapshot P[n] was sampled at)
   GAtmosphere: array of TAtmPerturber; // descriptor-indexed drag working set (assembled at scene load; see AccelDragAll)
   AccelCallbacks: PAccelCallbacks = nil;
   BodyConstants: array of TBodyConstant;   // lazy merged default table (name+GM+figure); Open fills bspx holes from it; freed in finalization. See InitBodyConstants.
+
+const
+  IntegrationCoef_Leapfrog2: array[0..0] of Double = (1.0);
+  IntegrationCoef_McLachlan4: array[0..3] of Double = (1.0, 0.487325057100486480, 0.608253293205081680, 0.205177661542286380);
+  //IntegrationCoef_RungeKutta5: array[0..4] of Double = (1.0, 8.0/9.0, 0.8, 0.3, 0.2);
+  IntegrationCoef_DormandPrince54: array[0..4] of Double = (1.0, 8.0/9.0, 0.8, 0.3, 0.2);
+  //IntegrationCoef_Yoshida6: array[0..6] of Double = (1.0, 0.215484389522440, -0.020088823836917, 1.157591160341953, -0.157593160341953, 1.020086823836917, 0.784513610477560);   // reversed FSAL (c7=1.0 .. c1); nodes overshoot [0,1] by ~0.16 -- part of why it was retired
+  IntegrationCoef_DormandPrince87: array[0..10] of Double = (1.0, 1201146811.0/1299019798.0, 13.0/20.0, 5490023248.0/9719169821.0, 93.0/200.0, 59.0/400.0, 3.0/8.0, 5.0/16.0, 1.0/8.0, 1.0/12.0, 1.0/18.0);
+  IntegrationCoef_BlanesMoanMcLachlan6: array[0..10] of Double = (1.0, 0.87677022405372900, 0.58621642625417100, 0.71326563887958800, 0.95959739994166300, 0.60238852714573500, 0.39761147285426500, 0.04040260005833700, 0.28673436112041200, 0.41378357374582900, 0.12322977594627100);
+  IntegrationCoef_GaussRadau15: array[0..7] of Double = (0.0, 0.0562625605369221464656521910318, 0.180240691736892364987579942780, 0.352624717113169637373907769648, 0.547153626330555383001448554766, 0.734210177215410531523210605558, 0.885320946839095768090359771030, 0.977520613561287501891174488626);
 
 implementation
 
@@ -390,30 +433,32 @@ begin
    end;
 end;
 
-procedure NewtonAccelJ2(S, P, A: Pointer; nBodies, nPert: NativeInt);
-// NewtonAccel + per-body zonal-J2 (oblateness), for the adaptive integrators' AVX2 branch (DP54/DP87
-// stages). Same pointer signature as NewtonAccel, so the stage call sites differ only by name. The
-// far-field gate (J2_CUTOFF_RADII, no sqrt) keeps it ~free away from a planet; GJ2Active is the master
-// switch. Symplectic integrators keep calling NewtonAccel directly -- they cannot resolve close
-// encounters and a per-step J2 kick would break their symplecticity.
+procedure NewtonAccelZonal(S, P, A: Pointer; nBodies, nPert: NativeInt);
+// NewtonAccel + per-body zonal (m=0) harmonics to GZonalMaxDeg, for the adaptive integrators' AVX2 branch (DP54/DP87
+// stages). Same pointer signature as NewtonAccel, so the stage call sites differ only by name; reads GZonalMaxDeg (set
+// by the driver from the UI) directly, since the signature is fixed. The far-field gate (J2_CUTOFF_RADII, no sqrt)
+// keeps it ~free away from a planet. Symplectic integrators keep calling NewtonAccel -- a per-step zonal kick would
+// break their symplecticity.
 var
   i, k: NativeInt;
+  md: Int64;
   Si, Bk: PState4D; Ai: PVec4D;
   d: TVec4D; d2: Double;
 begin
   NewtonAccel(S, P, A, nBodies, nPert);
-  if not GJ2Active then Exit;
+  md := GZonalMaxDeg;
+  if md < 2 then Exit;                                     // < 2 = off (the zonal sum starts at degree 2)
   for i := 0 to nBodies-1 do
   begin
     Si := PState4D(PByte(S) + i*SizeOf(TState4D));
     Ai := PVec4D (PByte(A) + i*SizeOf(TVec4D));
-    for k := 0 to High(GJ2) do
-      if (GJ2[k].Idx >= 0) and (GJ2[k].Idx < nPert) then
+    for k := 0 to High(GJzonal) do
+      if (GJzonal[k].Idx >= 0) and (GJzonal[k].Idx < nPert) then
       begin
-        Bk := PState4D(PByte(P) + GJ2[k].Idx*SizeOf(TState4D));
+        Bk := PState4D(PByte(P) + GJzonal[k].Idx*SizeOf(TState4D));
         d  := Si^.R - Bk^.R;  d2 := d or d;
-        if d2 < Sqr(J2_CUTOFF_RADII * GJ2[k].Req) then
-          Ai^ := Ai^ + OblatenessJ2(Si^, Bk^, GJ2[k].J2, GJ2[k].Req, GJ2[k].Pole);
+        if d2 < Sqr(J2_CUTOFF_RADII * GJzonal[k].Req) then
+          Ai^ := Ai^ + OblatenessZonal(Si^, Bk^, GJzonal[k].Jz, md, GJzonal[k].Req, GJzonal[k].Pole);
       end;
   end;
 end;
@@ -986,7 +1031,7 @@ begin
     StageS[i].R := S[i].R + S[i].V*(0.2*dt);
     kv2[i]      := S[i].V + a[i]*(0.2*dt);
   end;
-  NewtonAccelJ2(Pointer(StageS), Pointer(P[4]), Pointer(ka2), n, np);
+  NewtonAccelZonal(Pointer(StageS), Pointer(P[4]), Pointer(ka2), n, np);
 
   // Stage 3 (c3 = 3/10) -> P[3]
   for i := 0 to n-1 do
@@ -994,7 +1039,7 @@ begin
     StageS[i].R := S[i].R + (S[i].V*(3.0/40.0) + kv2[i]*(9.0/40.0))*dt;
     kv3[i]      := S[i].V + (a[i]*(3.0/40.0)   + ka2[i]*(9.0/40.0))*dt;
   end;
-  NewtonAccelJ2(Pointer(StageS), Pointer(P[3]), Pointer(ka3), n, np);
+  NewtonAccelZonal(Pointer(StageS), Pointer(P[3]), Pointer(ka3), n, np);
 
   // Stage 4 (c4 = 4/5) -> P[2]
   for i := 0 to n-1 do
@@ -1002,7 +1047,7 @@ begin
     StageS[i].R := S[i].R + (S[i].V*(44.0/45.0) - kv2[i]*(56.0/15.0) + kv3[i]*(32.0/9.0))*dt;
     kv4[i]      := S[i].V + (a[i]*(44.0/45.0)   - ka2[i]*(56.0/15.0) + ka3[i]*(32.0/9.0))*dt;
   end;
-  NewtonAccelJ2(Pointer(StageS), Pointer(P[2]), Pointer(ka4), n, np);
+  NewtonAccelZonal(Pointer(StageS), Pointer(P[2]), Pointer(ka4), n, np);
 
   // Stage 5 (c5 = 8/9) -> P[1]
   for i := 0 to n-1 do
@@ -1010,7 +1055,7 @@ begin
     StageS[i].R := S[i].R + (S[i].V*(19372.0/6561.0) - kv2[i]*(25360.0/2187.0) + kv3[i]*(64448.0/6561.0) - kv4[i]*(212.0/729.0))*dt;
     kv5[i]      := S[i].V + (a[i]*(19372.0/6561.0)   - ka2[i]*(25360.0/2187.0) + ka3[i]*(64448.0/6561.0) - ka4[i]*(212.0/729.0))*dt;
   end;
-  NewtonAccelJ2(Pointer(StageS), Pointer(P[1]), Pointer(ka5), n, np);
+  NewtonAccelZonal(Pointer(StageS), Pointer(P[1]), Pointer(ka5), n, np);
 
   // Stage 6 (c6 = 1) -> P[0]
   for i := 0 to n-1 do
@@ -1018,7 +1063,7 @@ begin
     StageS[i].R := S[i].R + (S[i].V*(9017.0/3168.0) - kv2[i]*(355.0/33.0) + kv3[i]*(46732.0/5247.0) + kv4[i]*(49.0/176.0) - kv5[i]*(5103.0/18656.0))*dt;
     kv6[i]      := S[i].V + (a[i]*(9017.0/3168.0)   - ka2[i]*(355.0/33.0) + ka3[i]*(46732.0/5247.0) + ka4[i]*(49.0/176.0) - ka5[i]*(5103.0/18656.0))*dt;
   end;
-  NewtonAccelJ2(Pointer(StageS), Pointer(P[0]), Pointer(ka6), n, np);
+  NewtonAccelZonal(Pointer(StageS), Pointer(P[0]), Pointer(ka6), n, np);
 
   // Final 5th-order state + embedded error (per body). kv1 = S.V, ka1 = a.
   for i := 0 to n-1 do
@@ -1088,6 +1133,7 @@ var
   kv1, kv2, kv3, kv4, kv5, kv6,
   ka1, ka2, ka3, ka4, ka5, ka6,
   r_stage, v_stage, err_r, err_v: TVec4D;
+  sStage: TState4D;   // scratch state (R only) for the shared AccelZonalAll -- keeps this branch numerically identical to the AVX2 NewtonAccelZonal
   GM, err, errv, err_max, sc_r, sc_v, growth, RTOL: Double;
   accepted: Boolean;
   i, j: Int64;
@@ -1111,6 +1157,7 @@ begin
       GM := P[4][j].GM;
       if GM > 0.0 then ka2 := ka2 + (P[4][j].R - r_stage).InvCubeScale3D(GM);
      end;
+    sStage.R := r_stage; ka2 := ka2 + AccelZonalAll(sStage, P[4], GZonalMaxDeg);   // + zonal (matches the AVX2 NewtonAccelZonal)
 
     // Stage 3  (c3 = 3/10)
     r_stage := S[i].R + (kv1 * (3.0/40.0) + kv2 * (9.0/40.0)) * dt;
@@ -1122,6 +1169,7 @@ begin
       GM := P[3][j].GM;
       if GM > 0.0 then ka3 := ka3 + (P[3][j].R - r_stage).InvCubeScale3D(GM);
      end;
+    sStage.R := r_stage; ka3 := ka3 + AccelZonalAll(sStage, P[3], GZonalMaxDeg);   // + zonal
 
     // Stage 4  (c4 = 4/5)
     r_stage := S[i].R + (kv1 * (44.0/45.0) - kv2 * (56.0/15.0) + kv3 * (32.0/9.0)) * dt;
@@ -1133,6 +1181,7 @@ begin
       GM := P[2][j].GM;
       if GM > 0.0 then ka4 := ka4 + (P[2][j].R - r_stage).InvCubeScale3D(GM);
      end;
+    sStage.R := r_stage; ka4 := ka4 + AccelZonalAll(sStage, P[2], GZonalMaxDeg);   // + zonal
 
     // Stage 5  (c5 = 8/9)
     r_stage := S[i].R + (kv1 * (19372.0/6561.0) - kv2 * (25360.0/2187.0) + kv3 * (64448.0/6561.0) - kv4 * (212.0/729.0)) * dt;
@@ -1144,6 +1193,7 @@ begin
       GM := P[1][j].GM;
       if GM > 0.0 then ka5 := ka5 + (P[1][j].R - r_stage).InvCubeScale3D(GM);
      end;
+    sStage.R := r_stage; ka5 := ka5 + AccelZonalAll(sStage, P[1], GZonalMaxDeg);   // + zonal
 
     // Stage 6  (c6 = 1)
     r_stage := S[i].R + (kv1 * (9017.0/3168.0) - kv2 * (355.0/33.0) + kv3 * (46732.0/5247.0) + kv4 * (49.0/176.0) - kv5 * (5103.0/18656.0)) * dt;
@@ -1155,6 +1205,7 @@ begin
       GM := P[0][j].GM;
       if GM > 0.0 then ka6 := ka6 + (P[0][j].R - r_stage).InvCubeScale3D(GM);
      end;
+    sStage.R := r_stage; ka6 := ka6 + AccelZonalAll(sStage, P[0], GZonalMaxDeg);   // + zonal
 
     TmpR[i] := S[i].R + (kv1 * B1 + kv3 * B3 + kv4 * B4 + kv5 * B5 + kv6 * B6) * dt;
     TmpV[i] := S[i].V + (ka1 * B1 + ka3 * B3 + ka4 * B4 + ka5 * B5 + ka6 * B6) * dt;
@@ -1270,7 +1321,7 @@ begin
     StageS[i].R := S[i].R + S[i].V*(A21*dt);
     kv2[i]      := S[i].V + a[i]*(A21*dt);
   end;
-  NewtonAccelJ2(Pointer(StageS), Pointer(P[10]), Pointer(ka2), n, np);
+  NewtonAccelZonal(Pointer(StageS), Pointer(P[10]), Pointer(ka2), n, np);
 
   // Stage 3 -> P[9]
   for i := 0 to n-1 do
@@ -1278,7 +1329,7 @@ begin
     StageS[i].R := S[i].R + (S[i].V*A31 + kv2[i]*A32)*dt;
     kv3[i]      := S[i].V + (a[i]*A31   + ka2[i]*A32)*dt;
   end;
-  NewtonAccelJ2(Pointer(StageS), Pointer(P[9]), Pointer(ka3), n, np);
+  NewtonAccelZonal(Pointer(StageS), Pointer(P[9]), Pointer(ka3), n, np);
 
   // Stage 4 -> P[8]
   for i := 0 to n-1 do
@@ -1286,7 +1337,7 @@ begin
     StageS[i].R := S[i].R + (S[i].V*A41 + kv3[i]*A43)*dt;
     kv4[i]      := S[i].V + (a[i]*A41   + ka3[i]*A43)*dt;
   end;
-  NewtonAccelJ2(Pointer(StageS), Pointer(P[8]), Pointer(ka4), n, np);
+  NewtonAccelZonal(Pointer(StageS), Pointer(P[8]), Pointer(ka4), n, np);
 
   // Stage 5 -> P[7]
   for i := 0 to n-1 do
@@ -1294,7 +1345,7 @@ begin
     StageS[i].R := S[i].R + (S[i].V*A51 + kv3[i]*A53 + kv4[i]*A54)*dt;
     kv5[i]      := S[i].V + (a[i]*A51   + ka3[i]*A53 + ka4[i]*A54)*dt;
   end;
-  NewtonAccelJ2(Pointer(StageS), Pointer(P[7]), Pointer(ka5), n, np);
+  NewtonAccelZonal(Pointer(StageS), Pointer(P[7]), Pointer(ka5), n, np);
 
   // Stage 6 -> P[6]
   for i := 0 to n-1 do
@@ -1302,7 +1353,7 @@ begin
     StageS[i].R := S[i].R + (S[i].V*A61 + kv4[i]*A64 + kv5[i]*A65)*dt;
     kv6[i]      := S[i].V + (a[i]*A61   + ka4[i]*A64 + ka5[i]*A65)*dt;
   end;
-  NewtonAccelJ2(Pointer(StageS), Pointer(P[6]), Pointer(ka6), n, np);
+  NewtonAccelZonal(Pointer(StageS), Pointer(P[6]), Pointer(ka6), n, np);
 
   // Stage 7 -> P[5]
   for i := 0 to n-1 do
@@ -1310,7 +1361,7 @@ begin
     StageS[i].R := S[i].R + (S[i].V*A71 + kv4[i]*A74 + kv5[i]*A75 + kv6[i]*A76)*dt;
     kv7[i]      := S[i].V + (a[i]*A71   + ka4[i]*A74 + ka5[i]*A75 + ka6[i]*A76)*dt;
   end;
-  NewtonAccelJ2(Pointer(StageS), Pointer(P[5]), Pointer(ka7), n, np);
+  NewtonAccelZonal(Pointer(StageS), Pointer(P[5]), Pointer(ka7), n, np);
 
   // Stage 8 -> P[4]
   for i := 0 to n-1 do
@@ -1318,7 +1369,7 @@ begin
     StageS[i].R := S[i].R + (S[i].V*A81 + kv4[i]*A84 + kv5[i]*A85 + kv6[i]*A86 + kv7[i]*A87)*dt;
     kv8[i]      := S[i].V + (a[i]*A81   + ka4[i]*A84 + ka5[i]*A85 + ka6[i]*A86 + ka7[i]*A87)*dt;
   end;
-  NewtonAccelJ2(Pointer(StageS), Pointer(P[4]), Pointer(ka8), n, np);
+  NewtonAccelZonal(Pointer(StageS), Pointer(P[4]), Pointer(ka8), n, np);
 
   // Stage 9 -> P[3]
   for i := 0 to n-1 do
@@ -1326,7 +1377,7 @@ begin
     StageS[i].R := S[i].R + (S[i].V*A91 + kv4[i]*A94 + kv5[i]*A95 + kv6[i]*A96 + kv7[i]*A97 + kv8[i]*A98)*dt;
     kv9[i]      := S[i].V + (a[i]*A91   + ka4[i]*A94 + ka5[i]*A95 + ka6[i]*A96 + ka7[i]*A97 + ka8[i]*A98)*dt;
   end;
-  NewtonAccelJ2(Pointer(StageS), Pointer(P[3]), Pointer(ka9), n, np);
+  NewtonAccelZonal(Pointer(StageS), Pointer(P[3]), Pointer(ka9), n, np);
 
   // Stage 10 -> P[2]
   for i := 0 to n-1 do
@@ -1334,7 +1385,7 @@ begin
     StageS[i].R := S[i].R + (S[i].V*A101 + kv4[i]*A104 + kv5[i]*A105 + kv6[i]*A106 + kv7[i]*A107 + kv8[i]*A108 + kv9[i]*A109)*dt;
     kv10[i]     := S[i].V + (a[i]*A101   + ka4[i]*A104 + ka5[i]*A105 + ka6[i]*A106 + ka7[i]*A107 + ka8[i]*A108 + ka9[i]*A109)*dt;
   end;
-  NewtonAccelJ2(Pointer(StageS), Pointer(P[2]), Pointer(ka10), n, np);
+  NewtonAccelZonal(Pointer(StageS), Pointer(P[2]), Pointer(ka10), n, np);
 
   // Stage 11 -> P[1]
   for i := 0 to n-1 do
@@ -1342,7 +1393,7 @@ begin
     StageS[i].R := S[i].R + (S[i].V*A111 + kv4[i]*A114 + kv5[i]*A115 + kv6[i]*A116 + kv7[i]*A117 + kv8[i]*A118 + kv9[i]*A119 + kv10[i]*A1110)*dt;
     kv11[i]     := S[i].V + (a[i]*A111   + ka4[i]*A114 + ka5[i]*A115 + ka6[i]*A116 + ka7[i]*A117 + ka8[i]*A118 + ka9[i]*A119 + ka10[i]*A1110)*dt;
   end;
-  NewtonAccelJ2(Pointer(StageS), Pointer(P[1]), Pointer(ka11), n, np);
+  NewtonAccelZonal(Pointer(StageS), Pointer(P[1]), Pointer(ka11), n, np);
 
   // Stage 12 -> P[0]
   for i := 0 to n-1 do
@@ -1350,7 +1401,7 @@ begin
     StageS[i].R := S[i].R + (S[i].V*A121 + kv4[i]*A124 + kv5[i]*A125 + kv6[i]*A126 + kv7[i]*A127 + kv8[i]*A128 + kv9[i]*A129 + kv10[i]*A1210 + kv11[i]*A1211)*dt;
     kv12[i]     := S[i].V + (a[i]*A121   + ka4[i]*A124 + ka5[i]*A125 + ka6[i]*A126 + ka7[i]*A127 + ka8[i]*A128 + ka9[i]*A129 + ka10[i]*A1210 + ka11[i]*A1211)*dt;
   end;
-  NewtonAccelJ2(Pointer(StageS), Pointer(P[0]), Pointer(ka12), n, np);
+  NewtonAccelZonal(Pointer(StageS), Pointer(P[0]), Pointer(ka12), n, np);
 
   // Stage 13 -> P[0]
   for i := 0 to n-1 do
@@ -1358,7 +1409,7 @@ begin
     StageS[i].R := S[i].R + (S[i].V*A131 + kv4[i]*A134 + kv5[i]*A135 + kv6[i]*A136 + kv7[i]*A137 + kv8[i]*A138 + kv9[i]*A139 + kv10[i]*A1310 + kv11[i]*A1311)*dt;
     kv13[i]     := S[i].V + (a[i]*A131   + ka4[i]*A134 + ka5[i]*A135 + ka6[i]*A136 + ka7[i]*A137 + ka8[i]*A138 + ka9[i]*A139 + ka10[i]*A1310 + ka11[i]*A1311)*dt;
   end;
-  NewtonAccelJ2(Pointer(StageS), Pointer(P[0]), Pointer(ka13), n, np);
+  NewtonAccelZonal(Pointer(StageS), Pointer(P[0]), Pointer(ka13), n, np);
 
   // Final 8th-order state, timescale sampling, and embedded error (per body). kv1 = S.V, ka1 = a.
   for i := 0 to n-1 do
@@ -1564,6 +1615,7 @@ var
   kv1, kv2, kv3, kv4, kv5, kv6, kv7, kv8, kv9, kv10, kv11, kv12, kv13: TVec4D;
   ka1, ka2, ka3, ka4, ka5, ka6, ka7, ka8, ka9, ka10, ka11, ka12, ka13: TVec4D;
   r_stage, v_stage, err_r, err_v: TVec4D;
+  sStage: TState4D;   // scratch state (R only) for the shared AccelZonalAll -- keeps this branch numerically identical to the AVX2 NewtonAccelZonal
   GM, err, errv, err_max, sc_r, sc_v, growth, RTOL, min_ts, amag, a_start, ts: Double;
   accepted: Boolean;
   i, j: Int64;
@@ -1588,6 +1640,7 @@ begin
       GM := P[10][j].GM;
       if GM > 0.0 then ka2 := ka2 + (P[10][j].R - r_stage).InvCubeScale3D(GM);
     end;
+    sStage.R := r_stage; ka2 := ka2 + AccelZonalAll(sStage, P[10], GZonalMaxDeg);   // + zonal (matches the AVX2 NewtonAccelZonal)
 
     // Stage 3 (c3 = 1/12 = 0.0833333333333333) -> Maps to P[9]
     r_stage := S[i].R + (kv1 * A31 + kv2 * A32) * dt;
@@ -1599,6 +1652,7 @@ begin
       GM := P[9][j].GM;
       if GM > 0.0 then ka3 := ka3 + (P[9][j].R - r_stage).InvCubeScale3D(GM);
     end;
+    sStage.R := r_stage; ka3 := ka3 + AccelZonalAll(sStage, P[9], GZonalMaxDeg);   // + zonal
 
     // Stage 4 (c4 = 1/8 = 0.125) -> Maps to P[8]
     r_stage := S[i].R + (kv1 * A41 + kv3 * A43) * dt;
@@ -1610,6 +1664,7 @@ begin
       GM := P[8][j].GM;
       if GM > 0.0 then ka4 := ka4 + (P[8][j].R - r_stage).InvCubeScale3D(GM);
     end;
+    sStage.R := r_stage; ka4 := ka4 + AccelZonalAll(sStage, P[8], GZonalMaxDeg);   // + zonal
 
     // Stage 5 (c5 = 5/16 = 0.3125) -> Maps to P[7]
     r_stage := S[i].R + (kv1 * A51 + kv3 * A53 + kv4 * A54) * dt;
@@ -1621,6 +1676,7 @@ begin
       GM := P[7][j].GM;
       if GM > 0.0 then ka5 := ka5 + (P[7][j].R - r_stage).InvCubeScale3D(GM);
     end;
+    sStage.R := r_stage; ka5 := ka5 + AccelZonalAll(sStage, P[7], GZonalMaxDeg);   // + zonal
 
     // Stage 6 (c6 = 3/8 = 0.375) -> Maps to P[6]
     r_stage := S[i].R + (kv1 * A61 + kv4 * A64 + kv5 * A65) * dt;
@@ -1632,6 +1688,7 @@ begin
       GM := P[6][j].GM;
       if GM > 0.0 then ka6 := ka6 + (P[6][j].R - r_stage).InvCubeScale3D(GM);
     end;
+    sStage.R := r_stage; ka6 := ka6 + AccelZonalAll(sStage, P[6], GZonalMaxDeg);   // + zonal
 
     // Stage 7 (c7 = 59/400 = 0.1475) -> Maps to P[5]
     r_stage := S[i].R + (kv1 * A71 + kv4 * A74 + kv5 * A75 + kv6 * A76) * dt;
@@ -1643,6 +1700,7 @@ begin
       GM := P[5][j].GM;
       if GM > 0.0 then ka7 := ka7 + (P[5][j].R - r_stage).InvCubeScale3D(GM);
     end;
+    sStage.R := r_stage; ka7 := ka7 + AccelZonalAll(sStage, P[5], GZonalMaxDeg);   // + zonal
 
     // Stage 8 (c8 = 93/200 = 0.465) -> Maps to P[4]
     r_stage := S[i].R + (kv1 * A81 + kv4 * A84 + kv5 * A85 + kv6 * A86 + kv7 * A87) * dt;
@@ -1654,6 +1712,7 @@ begin
       GM := P[4][j].GM;
       if GM > 0.0 then ka8 := ka8 + (P[4][j].R - r_stage).InvCubeScale3D(GM);
     end;
+    sStage.R := r_stage; ka8 := ka8 + AccelZonalAll(sStage, P[4], GZonalMaxDeg);   // + zonal
 
     // Stage 9 (c9 = 5490023248/9719169821 = 0.5648006...) -> Maps to P[3]
     r_stage := S[i].R + (kv1 * A91 + kv4 * A94 + kv5 * A95 + kv6 * A96 + kv7 * A97 + kv8 * A98) * dt;
@@ -1665,6 +1724,7 @@ begin
       GM := P[3][j].GM;
       if GM > 0.0 then ka9 := ka9 + (P[3][j].R - r_stage).InvCubeScale3D(GM);
     end;
+    sStage.R := r_stage; ka9 := ka9 + AccelZonalAll(sStage, P[3], GZonalMaxDeg);   // + zonal
 
     // Stage 10 (c10 = 13/20 = 0.65) -> Maps to P[2]
     r_stage := S[i].R + (kv1 * A101 + kv4 * A104 + kv5 * A105 + kv6 * A106 + kv7 * A107 + kv8 * A108 + kv9 * A109) * dt;
@@ -1676,6 +1736,7 @@ begin
       GM := P[2][j].GM;
       if GM > 0.0 then ka10 := ka10 + (P[2][j].R - r_stage).InvCubeScale3D(GM);
     end;
+    sStage.R := r_stage; ka10 := ka10 + AccelZonalAll(sStage, P[2], GZonalMaxDeg);   // + zonal
 
     // Stage 11 (c11 = 1201146811/1299019798 = 0.9246726...) -> Maps to P[1]
     r_stage := S[i].R + (kv1 * A111 + kv4 * A114 + kv5 * A115 + kv6 * A116 + kv7 * A117 + kv8 * A118 + kv9 * A119 + kv10 * A1110) * dt;
@@ -1687,6 +1748,7 @@ begin
       GM := P[1][j].GM;
       if GM > 0.0 then ka11 := ka11 + (P[1][j].R - r_stage).InvCubeScale3D(GM);
     end;
+    sStage.R := r_stage; ka11 := ka11 + AccelZonalAll(sStage, P[1], GZonalMaxDeg);   // + zonal
 
     // Stage 12 (c12 = 1.0) -> Maps to P[0]
     r_stage := S[i].R + (kv1 * A121 + kv4 * A124 + kv5 * A125 + kv6 * A126 + kv7 * A127 + kv8 * A128 + kv9 * A129 + kv10 * A1210 + kv11 * A1211) * dt;
@@ -1698,6 +1760,7 @@ begin
       GM := P[0][j].GM;
       if GM > 0.0 then ka12 := ka12 + (P[0][j].R - r_stage).InvCubeScale3D(GM);
     end;
+    sStage.R := r_stage; ka12 := ka12 + AccelZonalAll(sStage, P[0], GZonalMaxDeg);   // + zonal
 
     // Stage 13 (c13 = 1.0) -> ALSO maps to P[0] (FSAL property point correction sweep)
     r_stage := S[i].R + (kv1 * A131 + kv4 * A134 + kv5 * A135 + kv6 * A136 + kv7 * A137 + kv8 * A138 + kv9 * A139 + kv10 * A1310 + kv11 * A1311) * dt;
@@ -1709,6 +1772,7 @@ begin
       GM := P[0][j].GM;
       if GM > 0.0 then ka13 := ka13 + (P[0][j].R - r_stage).InvCubeScale3D(GM);
     end;
+    sStage.R := r_stage; ka13 := ka13 + AccelZonalAll(sStage, P[0], GZonalMaxDeg);   // + zonal
 
     // Blended final 8th-order solution states
     TmpR[i] := S[i].R + (kv1 * B1 + kv6 * B6 + kv7 * B7 + kv8 * B8 + kv9 * B9 + kv10 * B10 + kv11 * B11 + kv12 * B12 + kv13 * B13) * dt;
@@ -3057,7 +3121,7 @@ begin
     // "+ NonGravAccel(...)" tail here and at the node-n site below (leaving just the AccelPN call), OR
     // simply leave GNonGrav[i] inactive -- with the hook inactive NonGravAccel returns zero and the
     // result is already identical to the original.
-    a0 := PNAccelSelect(sNode, P[0], aP[0], Pert, 0) + NonGravAccel(sNode, P[0][GSunIdx], NGi) + AccelJ2All(sNode, P[0]) + AccelJHiAll(sNode, P[0]) + AccelDragAll(sNode, P[0], NGi.InvBC);
+    a0 := PNAccelSelect(sNode, P[0], aP[0], Pert, 0) + NonGravAccel(sNode, P[0][GSunIdx], NGi) + AccelZonalAll(sNode, P[0], GZonalMaxDeg) + AccelTesseralAll(sNode, P[0], 0, GTesseralMaxDeg) + AccelDragAll(sNode, P[0], NGi.InvBC);
     // Extra per-body acceleration (AccForm thrust). The AccelCallbacks<>nil test bypasses it entirely in the
     // common (99%) no-thrust case; sNode carries the node velocity IAS15_PN already predicts, so the velocity-
     // dependent term (prograde/normal) is evaluated on a consistent state. and-shortcircuit avoids deref-ing nil.
@@ -3119,7 +3183,7 @@ begin
         // Full (Newtonian + 1PN) acceleration at node n.
         sNode.R := rNode; sNode.V := vNode;
         // NONGRAV HOOK (node n) -- see the node-0 site above for how to disable/remove it.
-        aNode := PNAccelSelect(sNode, P[n], aP[n], Pert, n) + NonGravAccel(sNode, P[n][GSunIdx], NGi) + AccelJ2All(sNode, P[n]) + AccelJHiAll(sNode, P[n]) + AccelDragAll(sNode, P[n], NGi.InvBC);
+        aNode := PNAccelSelect(sNode, P[n], aP[n], Pert, n) + NonGravAccel(sNode, P[n][GSunIdx], NGi) + AccelZonalAll(sNode, P[n], GZonalMaxDeg) + AccelTesseralAll(sNode, P[n], n, GTesseralMaxDeg) + AccelDragAll(sNode, P[n], NGi.InvBC);
         if (AccelCallbacks<>nil) and Assigned(AccelCallbacks^[i]) then aNode := aNode + AccelCallbacks^[i](i, sNode, Pointer(P[n]), Length(P[n]));   // extra thrust (see node-0 site)
         gvec := aNode - a0;
 
@@ -3526,98 +3590,204 @@ begin
   Result.W := 0.0;
 end;
 
-function OblatenessJ2(const Si, Body: TState4D; J2, Rbody: Double; const Pole: TVec4D): TVec4D;
-// Zonal J2 (oblateness) acceleration on test body Si from an oblate Body (mu = Body.GM; symmetry axis
-// 'Pole' = UNIT vector in the ICRF integration frame). r = Si - Body. Add to the Newtonian+1PN accel.
-// Falls off as 1/r^4, so it only bites within a few Rbody. Verified sign: inward at the equator,
-// outward over the poles.
-//   a = -(3/2) J2 mu R^2 / r^4 * [ (1 - 5*zeta^2)*rhat + 2*zeta*Pole ],   zeta = (r.Pole)/|r|
-var
-  r: TVec4D; rmag, zeta, f: Double;
-begin
-  FillChar(Result, SizeOf(TVec4D), 0);
-  if (Body.GM <= 0.0) or (J2 = 0.0) then Exit;
-  r := Si.R - Body.R;
-  rmag := r.Magnitude3D;
-  if rmag <= 0.0 then Exit;
-  zeta := (r or Pole) / rmag;                                    // cos(colatitude)
-  f    := -1.5 * J2 * Body.GM * Sqr(Rbody) / Sqr(Sqr(rmag));     // -(3/2) J2 mu R^2 / r^4
-  Result := r * (f * (1.0 - 5.0*zeta*zeta) / rmag) + Pole * (f * 2.0 * zeta);
-  Result.W := 0.0;
-end;
-
-function AccelJ2All(const Si: TState4D; const P: TState4DArray): TVec4D;
-// Sum the zonal-J2 (oblateness) acceleration on Si from every enabled oblate body in GJ2 (Earth,
-// Jupiter, Saturn). Zero when GJ2Active is False. A cheap squared-distance gate skips any body beyond
-// J2_CUTOFF_RADII radii: since J2 falls as 1/r^4 it is sub-mm out there, so far from every planet this
-// costs only a subtract + dot + compare per body (no sqrt, no figure term evaluated). GJ2Active remains
-// the hard master switch to drop even the gate for runs known to have no encounters at all.
-var
-  k: Integer;
-  d: TVec4D; d2: Double;
-begin
-  FillChar(Result, SizeOf(TVec4D), 0);
-  if not GJ2Active then Exit;
-  for k := 0 to High(GJ2) do
-    if (GJ2[k].Idx >= 0) and (GJ2[k].Idx <= High(P)) then
-    begin
-      d  := Si.R - P[GJ2[k].Idx].R;
-      d2 := d or d;                                       // |r|^2 (no sqrt)
-      if d2 < Sqr(J2_CUTOFF_RADII * GJ2[k].Req) then      // within cutoff -> figure term; else skip
-        Result := Result + OblatenessJ2(Si, P[GJ2[k].Idx], GJ2[k].J2, GJ2[k].Req, GJ2[k].Pole);
-    end;
-  Result.W := 0.0;
-end;
-
-function OblatenessJHi(const Si, Body: TState4D; J3, J4, Rbody: Double; const Pole: TVec4D): TVec4D;
-// Higher zonal-harmonic (J3, J4) acceleration on Si from oblate Body, ICRF frame, km/s^2. Companion to
-// OblatenessJ2 for the IAS15_PN path only (opt-in via GJHiActive). Derived from the general zonal a_n
-// (same derivation that reproduces OblatenessJ2), with z = zeta = (r.Pole)/|r|:
-//   a3 = (J3/2)(mu/r^2)(R/r)^3 [ (35 z^3 - 15 z) rhat + (3 - 15 z^2) Pole ]
-//   a4 = (J4/8)(mu/r^2)(R/r)^4 [ (315 z^4 - 210 z^2 + 15) rhat + (60 z - 140 z^3) Pole ]
+function OblatenessZonal(const Si, Body: TState4D; const Jz: array of Double; MaxDeg: Int64; Rbody: Double; const Pole: TVec4D): TVec4D;
+// Zonal (m=0) acceleration on test body Si from oblate Body (mu = Body.GM; symmetry axis 'Pole' = UNIT vector in the
+// ICRF frame), summed over degrees 2..MaxDeg. r = Si - Body, z = (r.Pole)/|r|. General zonal term (verified to reproduce
+// the former explicit J2..J8 forms):  a_n = J_n (mu/r^2)(R/r)^n [ R_n(z) rhat + T_n(z) Pole ],  R_n = (n+1)P_n + z P_n',
+// T_n = -P_n', with P_n, P_n' from non-singular Legendre recurrences (no pole singularity). Position-only (no spin W),
+// so the DP integrators share it. Add to the Newtonian+1PN accel; falls off at least as 1/r^4 (the n=2 term).
 var
   r, rhat: TVec4D;
-  rmag, z, z2, mur2, Rr, base: Double;
+  rmag, z, mur2, Rr, Rrn, base, Rc, Tc: Double;
+  Pn, Pn1, Pn2, dPn, dPn1, dPn2: Double;
+  n: Int64;
 begin
   FillChar(Result, SizeOf(TVec4D), 0);
-  if Body.GM <= 0.0 then Exit;
+  if (Body.GM <= 0.0) or (MaxDeg < 2) then Exit;
+  if MaxDeg > GRAV_NMAX then MaxDeg := GRAV_NMAX;
+  if MaxDeg > High(Jz) then MaxDeg := High(Jz);
   r := Si.R - Body.R;
   rmag := r.Magnitude3D;
   if rmag <= 0.0 then Exit;
   rhat := r * (1.0/rmag);
-  z    := (r or Pole) / rmag;                 // cos(colatitude)
-  z2   := z*z;
-  mur2 := Body.GM / (rmag*rmag);              // mu / r^2
-  Rr   := Rbody / rmag;                        // R / r
-  if J3 <> 0.0 then
-  begin
-    base   := 0.5 * J3 * mur2 * (Rr*Rr*Rr);
-    Result := Result + rhat * (base * (35.0*z2*z - 15.0*z)) + Pole * (base * (3.0 - 15.0*z2));
-  end;
-  if J4 <> 0.0 then
-  begin
-    base   := 0.125 * J4 * mur2 * Sqr(Rr)*Sqr(Rr);
-    Result := Result + rhat * (base * (315.0*z2*z2 - 210.0*z2 + 15.0)) + Pole * (base * (60.0*z - 140.0*z2*z));
-  end;
+  z    := (r or Pole) / rmag;             // cos(colatitude)
+  mur2 := Body.GM / (rmag*rmag);          // mu / r^2
+  Rr   := Rbody / rmag;                    // R / r
+  // Legendre recurrences (non-singular): P_n=((2n-1)z P_{n-1}-(n-1)P_{n-2})/n ;  P_n'=(2n-1)P_{n-1}+P_{n-2}'
+  Pn2  := 1.0; Pn1  := z;                  // P0, P1
+  dPn2 := 0.0; dPn1 := 1.0;                // P0', P1'
+  Rrn  := Rr;                              // (R/r)^1, stepped to (R/r)^n in the loop
+  for n := 2 to MaxDeg do
+   begin
+    Pn  := ((2*n-1)*z*Pn1 - (n-1)*Pn2) / n;
+    dPn := (2*n-1)*Pn1 + dPn2;
+    Rrn := Rrn * Rr;                       // (R/r)^n
+    if Jz[n] <> 0.0 then
+     begin
+      Rc   := (n+1)*Pn + z*dPn;            // R_n(z)
+      Tc   := -dPn;                        // T_n(z)
+      base := Jz[n] * mur2 * Rrn;
+      Result := Result + rhat*(base*Rc) + Pole*(base*Tc);
+     end;
+    Pn2 := Pn1; Pn1 := Pn;  dPn2 := dPn1; dPn1 := dPn;
+   end;
   Result.W := 0.0;
 end;
 
-function AccelJHiAll(const Si: TState4D; const P: TState4DArray): TVec4D;
-// Sum the higher zonal (J3/J4) acceleration on Si from every enabled body in GJ2. Zero unless
-// GJHiActive. Same far-field squared-distance gate as AccelJ2All. Folded into the IAS15_PN path only.
+function AccelZonalAll(const Si: TState4D; const P: TState4DArray; MaxDeg: Int64): TVec4D;
+// Sum the zonal (m=0) acceleration on Si from every body in GJzonal, degrees 2..MaxDeg (MaxDeg<=0 => off). A cheap
+// squared-distance gate skips any body beyond J2_CUTOFF_RADII radii (the field falls at least as 1/r^4), so far from
+// every planet it costs only a subtract + dot + compare per body. Position-only, so the DP path (NewtonAccelZonal)
+// shares the same OblatenessZonal evaluator; IAS15 folds this into the two AccelPN sites.
 var
   k: Integer;
   d: TVec4D; d2: Double;
 begin
   FillChar(Result, SizeOf(TVec4D), 0);
-  if not GJHiActive then Exit;
-  for k := 0 to High(GJ2) do
-    if (GJ2[k].Idx >= 0) and (GJ2[k].Idx <= High(P)) then
+  if MaxDeg < 2 then Exit;                                     // < 2 = off (the sum starts at degree 2)
+  for k := 0 to High(GJzonal) do
+    if (GJzonal[k].Idx >= 0) and (GJzonal[k].Idx <= High(P)) then
     begin
-      d  := Si.R - P[GJ2[k].Idx].R;
-      d2 := d or d;
-      if d2 < Sqr(J2_CUTOFF_RADII * GJ2[k].Req) then
-        Result := Result + OblatenessJHi(Si, P[GJ2[k].Idx], GJ2[k].J3, GJ2[k].J4, GJ2[k].Req, GJ2[k].Pole);
+      d  := Si.R - P[GJzonal[k].Idx].R;
+      d2 := d or d;                                             // |r|^2 (no sqrt)
+      if d2 < Sqr(J2_CUTOFF_RADII * GJzonal[k].Req) then        // within cutoff -> figure term; else skip
+        Result := Result + OblatenessZonal(Si, P[GJzonal[k].Idx], GJzonal[k].Jz, MaxDeg, GJzonal[k].Req, GJzonal[k].Pole);
+    end;
+  Result.W := 0.0;
+end;
+
+// OblatenessJHi (explicit J3/J4/J6/J8) RETIRED 2026-07-22 -- superseded by the degree-capped OblatenessZonal above,
+// which sums any degrees 2..MaxDeg via a Legendre recursion (and adds the J5/J7 the explicit form omitted).
+
+procedure GravChiIndex(n, m: Int64; out iC, iSin: Int64);
+// Offsets of C̄nm (iC) and S̄nm (iSin) in a body's Chi array. Degree n's block starts at n*n-4 and runs
+// [C̄n0, C̄n1,S̄n1, C̄n2,S̄n2, .., C̄nn,S̄nn] (2n+1 entries). iSin = -1 for m=0 (the sine term is identically 0).
+begin
+  if m = 0 then begin iC := n*n - 4; iSin := -1; end
+  else begin iC := n*n - 4 + 2*m - 1; iSin := iC + 1; end;
+end;
+
+function SphHarmAccelBF(const p: TVec4D; GM, Rref: Double; const Chi: array of Double; NDeg, MMin: Int64): TVec4D;
+// Acceleration of the full C̄/S̄ gravity field (degrees 2..NDeg, tesserals included) on a point at BODY-FIXED position
+// p (km, relative to the body centre), returned in the SAME body-fixed frame (km/s^2). The caller rotates p from ICRF
+// into the body frame (pole + prime meridian W(t)) and the result back. Non-singular Cunningham/Montenbruck-Gill
+// recursion of the auxiliary harmonics V_nm, W_nm ("Satellite Orbits", Eqs. 3.29-3.33), run with UNNORMALISED
+// coefficients -- safe because NDeg<=GRAV_NMAX (~8): the classic overflow of the unnormalised form only bites above
+// ~degree 20. Chi is our fully-normalised store, de-normalised on entry (C_nm = C̄_nm*sqrt[(2-d0m)(2n+1)(n-m)!/(n+m)!]).
+// The monopole and degree 1 are EXCLUDED (n>=2): this returns only the non-spherical perturbation -- the body's
+// point-mass pull is already carried by the Newtonian perturber sum. MMin=0 sums the whole field (reduces to
+// OblatenessZonal for a zonal-only Chi); MMin=1 skips the zonal m=0 diagonal (leaving it to the zonal path).
+const NM = GRAV_NMAX + 2;   // V/W are needed up to degree NDeg+1
+var
+  x, y, z, r2, rr, rho, s, fac, prod, ax, ay, az, C, Sc: Double;
+  xr, yr, zr, r2r: Double;
+  V, W, Cf, Sf: array[0..NM, 0..NM] of Double;
+  n, m, k, iC, iSin: Int64;
+begin
+  FillChar(Result, SizeOf(TVec4D), 0);
+  if (GM <= 0.0) or (Rref <= 0.0) or (NDeg < 2) then Exit;
+  if NDeg > GRAV_NMAX then NDeg := GRAV_NMAX;
+  x := p.X; y := p.Y; z := p.Z;
+  r2 := x*x + y*y + z*z;
+  if r2 <= 0.0 then Exit;
+  rr := Sqrt(r2);
+  rho := Rref;
+  xr := x*rho/r2;  yr := y*rho/r2;  zr := z*rho/r2;  r2r := rho*rho/r2;   // recursion coords (carry the Rref/r^2 factor)
+
+  // V_nm, W_nm up to degree NDeg+1, column by column (m ascending): diagonal (m,m) from the previous column's
+  // diagonal (m-1,m-1), then the vertical steps up in n. Terms with row index < order are zero (guarded).
+  V[0,0] := rho/rr;  W[0,0] := 0.0;
+  for m := 0 to NDeg+1 do
+   begin
+    if m > 0 then
+     begin
+      V[m,m] := (2*m-1)*(xr*V[m-1,m-1] - yr*W[m-1,m-1]);
+      W[m,m] := (2*m-1)*(xr*W[m-1,m-1] + yr*V[m-1,m-1]);
+     end;
+    for n := m+1 to NDeg+1 do
+     begin
+      V[n,m] := ((2*n-1)*zr*V[n-1,m]) / (n-m);
+      W[n,m] := ((2*n-1)*zr*W[n-1,m]) / (n-m);
+      if n-2 >= m then
+       begin
+        V[n,m] := V[n,m] - ((n+m-1)*r2r*V[n-2,m]) / (n-m);
+        W[n,m] := W[n,m] - ((n+m-1)*r2r*W[n-2,m]) / (n-m);
+       end;
+     end;
+   end;
+
+  // de-normalise Chi -> unnormalised C_nm, S_nm (degrees 2..NDeg)
+  for n := 2 to NDeg do
+   for m := 0 to n do
+    begin
+     prod := 1.0;
+     for k := n-m+1 to n+m do prod := prod * k;                          // (n+m)!/(n-m)!
+     if m = 0 then fac := Sqrt((2*n+1)/prod) else fac := Sqrt(2.0*(2*n+1)/prod);
+     GravChiIndex(n, m, iC, iSin);
+     Cf[n,m] := Chi[iC]*fac;
+     if iSin >= 0 then Sf[n,m] := Chi[iSin]*fac else Sf[n,m] := 0.0;
+    end;
+
+  // acceleration (Montenbruck-Gill 3.33), body-fixed; s = GM/Rref^2. MMin=1 skips the zonal m=0 (the zonal path owns it).
+  ax := 0.0; ay := 0.0; az := 0.0;
+  for n := 2 to NDeg do
+   for m := MMin to n do
+    begin
+     C := Cf[n,m]; Sc := Sf[n,m];
+     if m = 0 then
+      begin
+       ax := ax - C*V[n+1,1];
+       ay := ay - C*W[n+1,1];
+      end
+     else
+      begin
+       fac := (n-m+2)*(n-m+1);                                           // (n-m+2)!/(n-m)!
+       ax := ax + 0.5*((-C*V[n+1,m+1] - Sc*W[n+1,m+1]) + fac*( C*V[n+1,m-1] + Sc*W[n+1,m-1]));
+       ay := ay + 0.5*((-C*W[n+1,m+1] + Sc*V[n+1,m+1]) + fac*(-C*W[n+1,m-1] + Sc*V[n+1,m-1]));
+      end;
+     az := az + (n-m+1)*(-C*V[n+1,m] - Sc*W[n+1,m]);
+    end;
+  s := GM/(rho*rho);
+  Result.X := s*ax;  Result.Y := s*ay;  Result.Z := s*az;  Result.W := 0.0;
+end;
+
+function AccelTesseralAll(const Si: TState4D; const P: TState4DArray; NodeIdx, MaxDeg: Int64): TVec4D;
+// Sum the tesseral (m>=1) acceleration on Si from every body in GJtesseral, degrees 2..MaxDeg (MaxDeg<=0 => off). The
+// zonal m=0 part of these SAME bodies is carried by AccelZonalAll, so the two never double-count. Same far-field gate
+// as AccelZonalAll, and just as rare to trip (the field falls at least as (R/r)^3). Within the gate: build the body's
+// ICRF->body-fixed rotation at the node time (pole precession RA/Dec(T) + prime-meridian spin W(T)), rotate Si's body-
+// relative position into the body frame, evaluate the field (SphHarmAccelBF, MMin=1 = tesserals only), rotate the accel
+// back to ICRF. IAS15 only. T = GNodeTime[NodeIdx] (TDB s past J2000) = IntegrationTime[NodeIdx], matching each P[n] sample time.
+var
+  k: Integer;
+  d, rbf, abf: TVec4D;
+  d2, T, Tcy, Tday, ra, dec, w: Double;
+  md: Int64;
+  M: TMat4D;
+begin
+  FillChar(Result, SizeOf(TVec4D), 0);
+  if (MaxDeg < 2) or (NodeIdx < 0) or (NodeIdx > High(GNodeTime)) then Exit;   // MaxDeg < 2 = off (sum starts at degree 2)
+  T := GNodeTime[NodeIdx];
+  Tcy  := T / (36525.0*DAY2SEC);   // Julian centuries past J2000 (pole precession)
+  Tday := T / DAY2SEC;             // days past J2000 (prime-meridian spin)
+  for k := 0 to High(GJtesseral) do
+    if (GJtesseral[k].Idx >= 0) and (GJtesseral[k].Idx <= High(P)) then
+    begin
+      d  := Si.R - P[GJtesseral[k].Idx].R;
+      d2 := d or d;                                              // |r|^2 (no sqrt)
+      if d2 < Sqr(J2_CUTOFF_RADII * GJtesseral[k].Rref) then     // within cutoff -> evaluate the field; else skip
+      begin
+        ra  := GJtesseral[k].PoleRA  + GJtesseral[k].PoleRARate *Tcy;
+        dec := GJtesseral[k].PoleDec + GJtesseral[k].PoleDecRate*Tcy;
+        w   := GJtesseral[k].PoleW   + GJtesseral[k].PoleWRate  *Tday;
+        // ICRF -> body-fixed = (ICRF -> pole equator) then spin by W about the pole. Same v*M, negated-angle convention
+        // as PoleEquatorMatrix; the extra Rz(-W) carries the equator's X (ascending node) to the prime meridian.
+        M := PoleEquatorMatrix(ra, dec) * GetRotMat4D(-(w*Pi/180.0), 0.0, 0.0, 1.0);
+        rbf := d * M;                                            // body-relative position, body-fixed frame
+        md := GJtesseral[k].Deg; if md > MaxDeg then md := MaxDeg;
+        abf := SphHarmAccelBF(rbf, P[GJtesseral[k].Idx].GM, GJtesseral[k].Rref, GJtesseral[k].Chi, md, 1);   // MMin=1: tesserals only
+        Result := Result + abf * M.Transpose;                   // body-fixed accel -> ICRF (M orthonormal: transpose = inverse)
+      end;
     end;
   Result.W := 0.0;
 end;
@@ -3676,17 +3846,20 @@ begin
   Result := -1;
 end;
 
-procedure SetOblateness(BodyID: Int64; J2, J3, J4, Req, PoleRA, PoleDec: Double);
-// Upsert a body's figure into GOblateness, building the ICRF pole unit vector from RA/Dec (deg):
-//   pole = (cos Dec cos RA, cos Dec sin RA, sin Dec). Used by TBSPXFile.Init when seeding GOblateness.
+procedure SetOblateness(BodyID: Int64; const Jz: array of Double; Req, PoleRA, PoleDec: Double);
+// Upsert a body's zonal figure into GOblateness, building the ICRF pole unit vector from RA/Dec (deg):
+//   pole = (cos Dec cos RA, cos Dec sin RA, sin Dec). Jz[n] = unnormalised zonal J_n (n=2..GRAV_NMAX; lower indices
+// ignored). Used by TBSPXFile.Init when seeding GOblateness.
 var
-  i: Int64;
+  i, k: Int64;
   ra, dec, cd: Double;
 begin
   i := FindOblateness(BodyID);
   if i < 0 then
    begin i := Length(GOblateness); SetLength(GOblateness, i+1); GOblateness[i].BodyID := BodyID; end;
-  GOblateness[i].J2 := J2; GOblateness[i].J3 := J3; GOblateness[i].J4 := J4; GOblateness[i].Req := Req;
+  for k := 0 to GRAV_NMAX do
+   if k <= High(Jz) then GOblateness[i].Jz[k] := Jz[k] else GOblateness[i].Jz[k] := 0.0;
+  GOblateness[i].Req := Req;
   ra := PoleRA*Pi/180.0; dec := PoleDec*Pi/180.0; cd := Cos(dec);
   GOblateness[i].Pole.X := cd*Cos(ra);
   GOblateness[i].Pole.Y := cd*Sin(ra);
@@ -3704,26 +3877,63 @@ begin
             GetRotMat4D(-(Pi/2 - PoleDec*Pi/180.0), 1.0, 0.0, 0.0);
 end;
 
-procedure ClearGJ2;
+procedure ClearGJzonal;
 begin
-  SetLength(GJ2, 0);
+  SetLength(GJzonal, 0);
 end;
 
-function AddGJ2(BodyID, Idx: Int64): Boolean;
-// If BodyID has a figure in GOblateness, append a working-set entry pointing at perturber slot Idx.
+function AddGJzonal(BodyID, Idx: Int64): Boolean;
+// If BodyID has a figure in GOblateness, append a zonal working-set entry pointing at perturber slot Idx.
 var
   i, n: Int64;
 begin
   i := FindOblateness(BodyID);
   Result := i >= 0;
   if not Result then Exit;
-  n := Length(GJ2); SetLength(GJ2, n+1);
-  GJ2[n].Idx  := Idx;
-  GJ2[n].J2   := GOblateness[i].J2;
-  GJ2[n].J3   := GOblateness[i].J3;
-  GJ2[n].J4   := GOblateness[i].J4;
-  GJ2[n].Req  := GOblateness[i].Req;
-  GJ2[n].Pole := GOblateness[i].Pole;
+  n := Length(GJzonal); SetLength(GJzonal, n+1);
+  GJzonal[n].Idx  := Idx;
+  GJzonal[n].Jz   := GOblateness[i].Jz;   // fixed-array copy (J2..J8)
+  GJzonal[n].Req  := GOblateness[i].Req;
+  GJzonal[n].Pole := GOblateness[i].Pole;
+end;
+
+function GravIsTesseral(const Chi: array of Double; Deg: Int64): Boolean;
+// True if the field carries any non-zero order-m>=1 term -> it also needs a GJtesseral entry (the longitude-aware Pines
+// path). Zonal-only fields (gas giants: only the C̄n0 diagonal) return False; their zonal is handled by GJzonal alone.
+var n, m, iC, iSin: Int64;
+begin
+  Result := True;
+  if Deg > GRAV_NMAX then Deg := GRAV_NMAX;
+  for n := 2 to Deg do
+   for m := 1 to n do
+    begin
+     GravChiIndex(n, m, iC, iSin);
+     if (iC <= High(Chi)) and ((Chi[iC] <> 0.0) or ((iSin >= 0) and (iSin <= High(Chi)) and (Chi[iSin] <> 0.0))) then Exit;
+    end;
+  Result := False;
+end;
+
+procedure ClearGJtesseral;
+begin
+  SetLength(GJtesseral, 0);
+end;
+
+function AddGJtesseral(Idx, Deg: Int64; Rref, PoleRA, PoleRARate, PoleDec, PoleDecRate, PoleW, PoleWRate: Double; const Chi: array of Double): Boolean;
+// Append a tesseral working-set entry for a body carrying a full field (Deg>=2, Rref>0, complete Chi). Chi is COPIED
+// into an owned dynamic array (the caller passes the const record's fixed Chi block). No field -> nothing added.
+var n, j: Int64;
+begin
+  Result := (Deg >= 2) and (Rref > 0.0) and (Length(Chi) = GRAV_NCOEF);
+  if not Result then Exit;
+  n := Length(GJtesseral); SetLength(GJtesseral, n+1);
+  GJtesseral[n].Idx := Idx;
+  if Deg > GRAV_NMAX then Deg := GRAV_NMAX;
+  GJtesseral[n].Deg := Deg; GJtesseral[n].Rref := Rref;
+  GJtesseral[n].PoleRA := PoleRA; GJtesseral[n].PoleRARate := PoleRARate;
+  GJtesseral[n].PoleDec := PoleDec; GJtesseral[n].PoleDecRate := PoleDecRate;
+  GJtesseral[n].PoleW := PoleW; GJtesseral[n].PoleWRate := PoleWRate;
+  SetLength(GJtesseral[n].Chi, GRAV_NCOEF);
+  for j := 0 to GRAV_NCOEF-1 do GJtesseral[n].Chi[j] := Chi[j];
 end;
 
 procedure ClearGAtmosphere;
@@ -3844,6 +4054,495 @@ const
     (Code:899; Rho0:0.45;      Alt0:0.0;   ScaleH:19.7)      // Neptune  -- 1-bar level
   );
 
+type
+  TBodyHarm = record Code: Int64; RefR: Double; Deg: Int64; J6, J8: Double; end;   // gas-giant higher-zonal extension
+const
+  // Higher zonal harmonics (J6/J8) + the coefficient reference radius for the axisymmetric giants, from JPL's satellite
+  // orbit-determination model (gravity_field/outer_planets.txt: Durante 2020, Jacobson 2021/2014, Brozovic 2020). J2/J4
+  // (and any small J3) already live on the body row; this supplies only J6/J8 + R_ref. Applied after the Add() sweep:
+  // builds the normalised C̄n0 diagonal of Chi (C̄n0 = -Jn/sqrt(2n+1)) from the row's J2/J3/J4 plus J6/J8 here, and sets
+  // GravDeg (= highest zonal with published data) + RefRadius. Gas giants are axisymmetric, so only the m=0 diagonal is
+  // filled; the tesseral solids (Mercury/Venus/Mars/Moon/Earth/...) get their full Chi from the SHADR/gfc parser later.
+  BODY_HARMONICS: array[0..3] of TBodyHarm = (
+    (Code:599; RefR:71492.0; Deg:8; J6: 34.2e-6; J8: -2.4e-6),   // Jupiter -- degree 8 complete
+    (Code:699; RefR:60330.0; Deg:8; J6: 86.8e-6; J8:-13.9e-6),   // Saturn  -- degree 8 complete
+    (Code:799; RefR:25559.0; Deg:4; J6:  0.0;    J8:  0.0),      // Uranus  -- no J6/J8 published (field ends at J4)
+    (Code:899; RefR:24764.0; Deg:6; J6:  0.5e-6; J8:  0.0)       // Neptune -- J6 only (field ends at J6)
+  );
+
+type
+  TSHCoef = record n, m: Integer; C, S: Double; end;   // one fully-normalised C̄nm/S̄nm pair, for a literal field default
+const
+  // Earth's default full field: EIGEN-6C4 static (GFZ/GRGS 2014), degrees 2..8, fully-normalised, TIDE_FREE. This is
+  // the marquee non-axisymmetric (tesseral) field -- the same "table default" role the gas-giant zonals above play,
+  // but the whole C̄/S̄ block. A future BSPMerge external-file reader (a folder of gfc/tpc/pck) will override it, exactly
+  // as a header GM overrides the default GM. R_ref is EIGEN's OWN reference radius (the coefficients are only valid at
+  // it); GM stays DE440 (the two agree to 1.5e-8, and GM is just a linear prefactor). Values are verbatim from eigen-6c4.gfc.
+  EARTH_SH_REFR = 6378.13646;   // km (EIGEN-6C4 header radius 0.6378136460E+07 m)
+  EARTH_SH: array[0..41] of TSHCoef = (
+    (n:2; m:0; C:-4.84165217061e-04; S:0.000000000000e+00),
+    (n:2; m:1; C:-3.38846075704e-10; S:1.46306108906e-09),
+    (n:2; m:2; C:2.43934736621e-06; S:-1.40030429947e-06),
+    (n:3; m:0; C:9.57173592933e-07; S:0.000000000000e+00),
+    (n:3; m:1; C:2.03045608898e-06; S:2.48236210655e-07),
+    (n:3; m:2; C:9.04777332744e-07; S:-6.19004510413e-07),
+    (n:3; m:3; C:7.21259489074e-07; S:1.41437833274e-06),
+    (n:4; m:0; C:5.39998754738e-07; S:0.000000000000e+00),
+    (n:4; m:1; C:-5.36166975127e-07; S:-4.73569524220e-07),
+    (n:4; m:2; C:3.50486856274e-07; S:6.62500873652e-07),
+    (n:4; m:3; C:9.90864873903e-07; S:-2.00944581132e-07),
+    (n:4; m:4; C:-1.88514784102e-07; S:3.08818612069e-07),
+    (n:5; m:0; C:6.86465403533e-08; S:0.000000000000e+00),
+    (n:5; m:1; C:-6.29157904335e-08; S:-9.43461119113e-08),
+    (n:5; m:2; C:6.52055375304e-07; S:-3.23345860821e-07),
+    (n:5; m:3; C:-4.51840616639e-07; S:-2.14950903186e-07),
+    (n:5; m:4; C:-2.95319431402e-07; S:4.98061700315e-08),
+    (n:5; m:5; C:1.74828802526e-07; S:-6.69364118687e-07),
+    (n:6; m:0; C:-1.49975580611e-07; S:0.000000000000e+00),
+    (n:6; m:1; C:-7.59389505724e-08; S:2.65319525716e-08),
+    (n:6; m:2; C:4.86275861917e-08; S:-3.73781653908e-07),
+    (n:6; m:3; C:5.72486487243e-08; S:8.97932379418e-09),
+    (n:6; m:4; C:-8.60009708664e-08; S:-4.71433749842e-07),
+    (n:6; m:5; C:-2.67164463150e-07; S:-5.36495468758e-07),
+    (n:6; m:6; C:9.48213343830e-09; S:-2.37378234077e-07),
+    (n:7; m:0; C:9.04993977725e-08; S:0.000000000000e+00),
+    (n:7; m:1; C:2.80882729861e-07; S:9.51539690641e-08),
+    (n:7; m:2; C:3.30386531293e-07; S:9.30216048875e-08),
+    (n:7; m:3; C:2.50459114854e-07; S:-2.17101196635e-07),
+    (n:7; m:4; C:-2.74986889189e-07; S:-1.24047654864e-07),
+    (n:7; m:5; C:1.64687012708e-09; S:1.79276194782e-08),
+    (n:7; m:6; C:-3.58802501306e-07; S:1.51793319520e-07),
+    (n:7; m:7; C:1.52799655051e-09; S:2.41038231378e-08),
+    (n:8; m:0; C:4.94771152555e-08; S:0.000000000000e+00),
+    (n:8; m:1; C:2.31426659976e-08; S:5.89080204135e-08),
+    (n:8; m:2; C:8.00119174765e-08; S:6.52988475458e-08),
+    (n:8; m:3; C:-1.93662457012e-08; S:-8.59446366703e-08),
+    (n:8; m:4; C:-2.44347136779e-07; S:6.98139511354e-08),
+    (n:8; m:5; C:-2.56993845900e-08; S:8.92087174082e-08),
+    (n:8; m:6; C:-6.59696208543e-08; S:3.08944817343e-07),
+    (n:8; m:7; C:6.72556792098e-08; S:7.48660100622e-08),
+    (n:8; m:8; C:-1.24033880683e-07; S:1.20539098657e-07)
+  );
+
+  // Solid-planet default fields, JPL SHADR models, degrees 2..8, fully normalised (GM kept at DE440, R_ref is each
+  // model's own reference radius). Same "table default" role as Earth's EIGEN field; a future BSPMerge external-file
+  // reader will override them. Mercury: MESS160A (2440 km). Venus: SHGJ180U (6051 km). Mars: JGMRO_120F (3396 km).
+  MERCURY_SH_REFR = 2440.0;
+  MERCURY_SH: array[0..41] of TSHCoef = (
+    (n:2; m:0; C:-0.2250253697653000E-04; S:0.0000000000000000E+00),
+    (n:2; m:1; C:-0.6734511269855000E-08; S:-0.2289568751023000E-08),
+    (n:2; m:2; C:0.1245539747058000E-04; S:-0.2441873720248000E-07),
+    (n:3; m:0; C:-0.4770937804775000E-05; S:0.0000000000000000E+00),
+    (n:3; m:1; C:-0.3598057734521000E-05; S:-0.2640313002650000E-05),
+    (n:3; m:2; C:0.9495656263775000E-06; S:-0.5955458304713000E-06),
+    (n:3; m:3; C:0.6382794480418000E-06; S:0.1649428596146000E-05),
+    (n:4; m:0; C:-0.5809271015195000E-05; S:0.0000000000000000E+00),
+    (n:4; m:1; C:0.1719422440432000E-05; S:0.3346524716610000E-05),
+    (n:4; m:2; C:0.1902749041775000E-05; S:0.2819083782408000E-05),
+    (n:4; m:3; C:-0.8261263626997000E-06; S:0.1440960719000000E-05),
+    (n:4; m:4; C:0.2814646086783000E-07; S:-0.3426529897445000E-06),
+    (n:5; m:0; C:0.1891572113090000E-06; S:0.0000000000000000E+00),
+    (n:5; m:1; C:0.6661845731460000E-06; S:0.9377733105550000E-06),
+    (n:5; m:2; C:0.6639383745220000E-06; S:0.8434688749556000E-06),
+    (n:5; m:3; C:0.1193917248684000E-05; S:0.1069952076245000E-05),
+    (n:5; m:4; C:0.1465291771645000E-05; S:-0.1027639400223000E-05),
+    (n:5; m:5; C:0.1597103278876000E-05; S:-0.5272893843377000E-06),
+    (n:6; m:0; C:0.1621211223391000E-05; S:0.0000000000000000E+00),
+    (n:6; m:1; C:0.6858954205595000E-06; S:0.1078215490457000E-05),
+    (n:6; m:2; C:0.1396221577380000E-06; S:0.3027833356601000E-06),
+    (n:6; m:3; C:-0.1621821719731000E-06; S:0.1312540921388000E-06),
+    (n:6; m:4; C:-0.1235835405622000E-05; S:-0.5488035495939000E-06),
+    (n:6; m:5; C:0.2350586490634000E-05; S:0.3159707712155000E-05),
+    (n:6; m:6; C:0.1326758520838000E-05; S:-0.1578703786001000E-05),
+    (n:7; m:0; C:-0.4429180424516000E-06; S:0.0000000000000000E+00),
+    (n:7; m:1; C:0.4083468272668000E-06; S:-0.4958879330966000E-06),
+    (n:7; m:2; C:-0.2052588881431000E-05; S:0.9153153728629000E-06),
+    (n:7; m:3; C:-0.1633060349578000E-06; S:0.5720345850799000E-06),
+    (n:7; m:4; C:-0.6621032768648000E-06; S:-0.3832845834521000E-06),
+    (n:7; m:5; C:-0.2979459388114000E-06; S:0.3184539921523000E-05),
+    (n:7; m:6; C:0.1980572589359000E-06; S:-0.1085910185437000E-05),
+    (n:7; m:7; C:-0.3761479672099000E-06; S:0.4089517585351000E-07),
+    (n:8; m:0; C:-0.1123593133755000E-05; S:0.0000000000000000E+00),
+    (n:8; m:1; C:0.1607464019809000E-06; S:0.1860223868221000E-06),
+    (n:8; m:2; C:-0.4825015239681000E-06; S:0.1658727771162000E-05),
+    (n:8; m:3; C:-0.2102492419254000E-05; S:0.6144280980910000E-06),
+    (n:8; m:4; C:-0.1444087751116000E-06; S:-0.1434783038987000E-06),
+    (n:8; m:5; C:-0.8089176751450000E-06; S:-0.9477858951762000E-06),
+    (n:8; m:6; C:0.1697719590261000E-06; S:-0.9754710863049001E-06),
+    (n:8; m:7; C:0.3113474318044000E-06; S:-0.4978502832745000E-06),
+    (n:8; m:8; C:-0.1175727419265000E-05; S:0.4482426348731000E-06)
+  );
+
+  VENUS_SH_REFR = 6051.0;
+  VENUS_SH: array[0..41] of TSHCoef = (
+    (n:2; m:0; C:-0.1969723357760000E-05; S:0.0000000000000000E+00),
+    (n:2; m:1; C:0.2680268978050000E-07; S:0.1324780256340000E-07),
+    (n:2; m:2; C:0.8577798458089999E-06; S:-0.9553616380009999E-07),
+    (n:3; m:0; C:0.7968246371910000E-06; S:0.0000000000000000E+00),
+    (n:3; m:1; C:0.2348303842190000E-05; S:0.5416288390999999E-06),
+    (n:3; m:2; C:-0.8535261871399999E-08; S:0.8090612890690001E-06),
+    (n:3; m:3; C:-0.1880193062980000E-06; S:0.2134850148720000E-06),
+    (n:4; m:0; C:0.7158087500450000E-06; S:0.0000000000000000E+00),
+    (n:4; m:1; C:-0.4574232817400001E-06; S:0.4916077249599999E-06),
+    (n:4; m:2; C:0.1263211981230000E-06; S:0.4835736762340000E-06),
+    (n:4; m:3; C:-0.1746619213280000E-06; S:-0.1164975842530000E-06),
+    (n:4; m:4; C:0.1725128369010000E-06; S:0.1376611668820000E-05),
+    (n:5; m:0; C:-0.1407888499360000E-06; S:0.0000000000000000E+00),
+    (n:5; m:1; C:0.1735526780020000E-06; S:0.4421429534240000E-06),
+    (n:5; m:2; C:0.7906049603450001E-07; S:-0.8685352147110000E-06),
+    (n:5; m:3; C:0.5080406905960001E-06; S:0.5558858264890000E-06),
+    (n:5; m:4; C:0.3918287204480000E-06; S:0.2400755650860001E-06),
+    (n:5; m:5; C:0.2566468449190000E-06; S:-0.3691089642920001E-06),
+    (n:6; m:0; C:0.3231276443979999E-07; S:0.0000000000000000E+00),
+    (n:6; m:1; C:0.3934186441300000E-06; S:-0.3389428725010001E-06),
+    (n:6; m:2; C:0.1861406217130000E-06; S:0.2606796093590000E-06),
+    (n:6; m:3; C:0.7428460040810000E-06; S:-0.2113408730810000E-06),
+    (n:6; m:4; C:-0.1998050651730000E-06; S:0.2590960357720000E-06),
+    (n:6; m:5; C:0.2565201638170001E-06; S:-0.5835983902300001E-07),
+    (n:6; m:6; C:-0.2945818907840000E-07; S:0.2161097617110000E-06),
+    (n:7; m:0; C:-0.7295780343319999E-07; S:0.0000000000000000E+00),
+    (n:7; m:1; C:0.3057440059249999E-06; S:-0.2776653503960001E-06),
+    (n:7; m:2; C:0.1514813483580000E-06; S:0.3552866183900000E-07),
+    (n:7; m:3; C:0.1676100279340000E-06; S:-0.4494837326849999E-06),
+    (n:7; m:4; C:-0.1964919484390000E-07; S:-0.8791485864290000E-07),
+    (n:7; m:5; C:0.3193965285910000E-07; S:-0.4000087105759999E-07),
+    (n:7; m:6; C:-0.5192168720920001E-08; S:-0.2795912821590001E-06),
+    (n:7; m:7; C:-0.1936758352640000E-06; S:-0.4841290310190000E-06),
+    (n:8; m:0; C:-0.4258325314740000E-06; S:0.0000000000000000E+00),
+    (n:8; m:1; C:-0.1978580051960000E-07; S:-0.2614631937930000E-06),
+    (n:8; m:2; C:0.1634776751150000E-06; S:-0.2321084325970000E-06),
+    (n:8; m:3; C:0.3061320132429999E-06; S:-0.3937959368739999E-08),
+    (n:8; m:4; C:-0.1095462456100000E-06; S:0.8208323048789999E-07),
+    (n:8; m:5; C:-0.3554848780130000E-07; S:-0.1775291370380000E-07),
+    (n:8; m:6; C:-0.5922479287480000E-07; S:-0.2971944702680001E-06),
+    (n:8; m:7; C:-0.3168326048219999E-07; S:-0.8520877602610000E-07),
+    (n:8; m:8; C:0.9475823059059999E-07; S:0.2950917599710000E-06)
+  );
+
+  MARS_SH_REFR = 3396.0;
+  MARS_SH: array[0..41] of TSHCoef = (
+    (n:2; m:0; C:-0.8750219819894000E-03; S:0.0000000000000000E+00),
+    (n:2; m:1; C:0.3754637323667000E-09; S:0.2200086090819000E-10),
+    (n:2; m:2; C:-0.8463283575906001E-04; S:0.4893975901192000E-04),
+    (n:3; m:0; C:-0.1189685487260000E-04; S:0.0000000000000000E+00),
+    (n:3; m:1; C:0.3805070105539000E-05; S:0.2517710405987000E-04),
+    (n:3; m:2; C:-0.1594738626409000E-04; S:0.8362451545460000E-05),
+    (n:3; m:3; C:0.3505644651229000E-04; S:0.2557112754670000E-04),
+    (n:4; m:0; C:0.5129215056400000E-05; S:0.0000000000000000E+00),
+    (n:4; m:1; C:0.4216416368125000E-05; S:0.3763251825902000E-05),
+    (n:4; m:2; C:-0.9531112908306000E-06; S:-0.8980789337637000E-05),
+    (n:4; m:3; C:0.6456844720034000E-05; S:-0.1938065614944000E-06),
+    (n:4; m:4; C:0.3081489655654000E-06; S:-0.1287306073431000E-04),
+    (n:5; m:0; C:-0.1726767511111000E-05; S:0.0000000000000000E+00),
+    (n:5; m:1; C:0.4838408434312000E-06; S:0.2123133197613000E-05),
+    (n:5; m:2; C:-0.4298186752695000E-05; S:-0.1165672924743000E-05),
+    (n:5; m:3; C:0.3312671008341000E-05; S:0.2714245732475000E-06),
+    (n:5; m:4; C:-0.4640784114810000E-05; S:-0.3381516353804000E-05),
+    (n:5; m:5; C:-0.4449228353206000E-05; S:0.3780527639702000E-05),
+    (n:6; m:0; C:0.1346481536389000E-05; S:0.0000000000000000E+00),
+    (n:6; m:1; C:0.1802359231883000E-05; S:-0.1518503560202000E-05),
+    (n:6; m:2; C:0.8617185162693000E-06; S:0.1469102730489000E-05),
+    (n:6; m:3; C:0.9556773136791999E-06; S:0.3329281503068000E-06),
+    (n:6; m:4; C:0.1008776686157000E-05; S:0.2638641760667000E-05),
+    (n:6; m:5; C:0.1657904800825000E-05; S:0.1622658125516000E-05),
+    (n:6; m:6; C:0.2762240137296000E-05; S:0.8213249509154000E-06),
+    (n:7; m:0; C:0.1059928218932000E-05; S:0.0000000000000000E+00),
+    (n:7; m:1; C:0.1374996609343000E-05; S:-0.2273732220197000E-06),
+    (n:7; m:2; C:0.2813976078647000E-05; S:-0.6296904204297000E-06),
+    (n:7; m:3; C:0.8804985838432000E-06; S:-0.3969827274877000E-06),
+    (n:7; m:4; C:0.2468983140343000E-05; S:-0.4224796072647000E-06),
+    (n:7; m:5; C:-0.1916955145945000E-06; S:-0.1358526400849000E-05),
+    (n:7; m:6; C:-0.5596240756853000E-06; S:-0.1901363609122000E-05),
+    (n:7; m:7; C:0.4403688789172000E-06; S:-0.1775677094187000E-05),
+    (n:8; m:0; C:0.1444506407223000E-06; S:0.0000000000000000E+00),
+    (n:8; m:1; C:-0.1325441264525000E-06; S:0.7505262024462000E-06),
+    (n:8; m:2; C:0.1810438664460000E-05; S:0.5070625833306000E-06),
+    (n:8; m:3; C:-0.1207016139545000E-05; S:-0.1341290207198000E-05),
+    (n:8; m:4; C:0.1588280927294000E-05; S:0.1481084551390000E-06),
+    (n:8; m:5; C:-0.2791768142196000E-05; S:-0.1629758748974000E-05),
+    (n:8; m:6; C:-0.9144358997554001E-06; S:-0.1789927302312000E-05),
+    (n:8; m:7; C:-0.4736267656712000E-06; S:0.1644709650654000E-05),
+    (n:8; m:8; C:-0.3106572107014000E-06; S:-0.2502787386956000E-06)
+  );
+
+  // Moon: GRAIL JGGRX_0900D (RefR 1738.0). CAVEAT: the coefficients are in the lunar PRINCIPAL-AXIS frame, whereas our
+  // rotation model (PoleRA/Dec/W + linear rates) is the IAU linear (~mean-Earth) frame -- a fixed ~0.3deg offset plus
+  // the neglected physical libration. Fine at deg 8 for general dynamics; refine the lunar rotation for high near-Moon accuracy.
+  MOON_SH_REFR = 1738.0;
+  MOON_SH: array[0..41] of TSHCoef = (
+    (n:2; m:0; C:-0.9088124807048000E-04; S:0.0000000000000000E+00),
+    (n:2; m:1; C:0.2351746492573000E-09; S:0.1044474062376000E-08),
+    (n:2; m:2; C:0.3467408607293000E-04; S:-0.1339776662195000E-09),
+    (n:3; m:0; C:-0.3197445280420000E-05; S:0.0000000000000000E+00),
+    (n:3; m:1; C:0.2636795509644000E-04; S:0.5454539983454000E-05),
+    (n:3; m:2; C:0.1417149107237000E-04; S:0.4877974232126000E-05),
+    (n:3; m:3; C:0.1227505227804000E-04; S:-0.1774317683429000E-05),
+    (n:4; m:0; C:0.3234795995974000E-05; S:0.0000000000000000E+00),
+    (n:4; m:1; C:-0.6013467637411000E-05; S:0.1664316234498000E-05),
+    (n:4; m:2; C:-0.7116169094765000E-05; S:-0.6777045803795000E-05),
+    (n:4; m:3; C:-0.1349974758249000E-05; S:-0.1344499123017000E-04),
+    (n:4; m:4; C:-0.6007023544009000E-05; S:0.3926536974166000E-05),
+    (n:5; m:0; C:-0.2237862962417000E-06; S:0.0000000000000000E+00),
+    (n:5; m:1; C:-0.1011602594693000E-05; S:-0.4118918173072000E-05),
+    (n:5; m:2; C:0.4399518982025000E-05; S:0.1057141493807000E-05),
+    (n:5; m:3; C:0.4661575916633000E-06; S:0.8698899369844000E-05),
+    (n:5; m:4; C:0.2754160545924000E-05; S:0.6762259094131000E-07),
+    (n:5; m:5; C:0.3110818615395000E-05; S:-0.2754537967015000E-05),
+    (n:6; m:0; C:0.3818428425858000E-05; S:0.0000000000000000E+00),
+    (n:6; m:1; C:0.1528258612943000E-05; S:-0.2599596636890000E-05),
+    (n:6; m:2; C:-0.4397301231474000E-05; S:-0.2167698380310000E-05),
+    (n:6; m:3; C:-0.3317525403334000E-05; S:-0.3427429908688000E-05),
+    (n:6; m:4; C:0.3412141599126000E-06; S:-0.4058046543825000E-05),
+    (n:6; m:5; C:0.1454413555888000E-05; S:-0.1034177169942000E-04),
+    (n:6; m:6; C:-0.4684211790942000E-05; S:0.7229882841312000E-05),
+    (n:7; m:0; C:0.5593411497042000E-05; S:0.0000000000000000E+00),
+    (n:7; m:1; C:0.7471664075656000E-05; S:-0.1197358462935000E-06),
+    (n:7; m:2; C:-0.6501523120284000E-06; S:0.2411111240194000E-05),
+    (n:7; m:3; C:0.5994216561610000E-06; S:0.2357332156782000E-05),
+    (n:7; m:4; C:-0.8437047109434000E-06; S:0.7565103968368000E-06),
+    (n:7; m:5; C:-0.2068084929814000E-06; S:0.1069310900234000E-05),
+    (n:7; m:6; C:-0.1065340249576000E-05; S:0.1100462730689000E-05),
+    (n:7; m:7; C:-0.1820256920974000E-05; S:-0.1600061209739000E-05),
+    (n:8; m:0; C:0.2346826891883000E-05; S:0.0000000000000000E+00),
+    (n:8; m:1; C:0.4169368576832000E-08; S:0.1098037428797000E-05),
+    (n:8; m:2; C:0.3009314074362000E-05; S:0.1930565327482000E-05),
+    (n:8; m:3; C:-0.1889048770847000E-05; S:0.9544678571190000E-06),
+    (n:8; m:4; C:0.3408687787676000E-05; S:-0.5282456437967000E-06),
+    (n:8; m:5; C:-0.1248066862873000E-05; S:0.2918558502819000E-05),
+    (n:8; m:6; C:-0.1660417087399000E-05; S:-0.2114684853858000E-05),
+    (n:8; m:7; C:-0.1509668339879000E-05; S:0.3268875515845000E-05),
+    (n:8; m:8; C:-0.2485685629145000E-05; S:0.2116401754605000E-05)
+  );
+
+  // Ceres: Dawn CERES70E (Park et al. 2020, JPL SHADR JGDWN_C70E01), degrees 2..8, fully normalised. R_ref = 470.0 km
+  // (the model radius, distinct from the triaxial Req 487.3). Pole/spin already on the body row (Dawn-derived, so the
+  // body-fixed frame matches the model). The measured solution -- NOT the Sprlak-2020 constant-density forward model.
+  CERES_SH_REFR = 470.0;
+  CERES_SH: array[0..41] of TSHCoef = (
+    (n:2; m:0; C:-0.1185099078733000E-01; S:0.0000000000000000E+00),
+    (n:2; m:1; C:0.2360776951664000E-08; S:-0.9197235234461999E-10),
+    (n:2; m:2; C:0.2470135451313000E-03; S:-0.2743515682077000E-03),
+    (n:3; m:0; C:0.4153368314230000E-04; S:0.0000000000000000E+00),
+    (n:3; m:1; C:0.2338206020399000E-04; S:0.6214852028241000E-04),
+    (n:3; m:2; C:-0.1917517372791000E-04; S:0.7074830299238000E-04),
+    (n:3; m:3; C:-0.4882525846862000E-04; S:-0.9004572784906000E-04),
+    (n:4; m:0; C:0.5729622578975000E-03; S:0.0000000000000000E+00),
+    (n:4; m:1; C:-0.2273819468200000E-04; S:-0.2348927785871000E-05),
+    (n:4; m:2; C:0.1238374385439000E-04; S:-0.1721709227866000E-04),
+    (n:4; m:3; C:-0.2344205740795000E-04; S:-0.3327784249711000E-05),
+    (n:4; m:4; C:0.2661161865683000E-04; S:0.2753622416109000E-04),
+    (n:5; m:0; C:-0.3983832349028000E-06; S:0.0000000000000000E+00),
+    (n:5; m:1; C:0.1531159714438000E-04; S:-0.2229323581098000E-04),
+    (n:5; m:2; C:-0.1168659896645000E-04; S:0.7396981729673000E-05),
+    (n:5; m:3; C:0.2463162930421000E-04; S:-0.2732192880528000E-04),
+    (n:5; m:4; C:-0.3338672681917000E-04; S:0.2208205809176000E-04),
+    (n:5; m:5; C:-0.2348628192649000E-04; S:0.1935547978857000E-04),
+    (n:6; m:0; C:-0.2277443663103000E-04; S:0.0000000000000000E+00),
+    (n:6; m:1; C:0.6800747297276000E-05; S:0.2795613442990000E-04),
+    (n:6; m:2; C:-0.3516979966873000E-05; S:-0.5226095858217000E-05),
+    (n:6; m:3; C:-0.9860658461948000E-05; S:0.3850254907395000E-04),
+    (n:6; m:4; C:0.1068695836393000E-04; S:-0.8360249280300000E-05),
+    (n:6; m:5; C:0.2253138969588000E-04; S:-0.3943889331103000E-05),
+    (n:6; m:6; C:-0.2230790768717000E-04; S:-0.5811432336878000E-05),
+    (n:7; m:0; C:0.1562888647054000E-05; S:0.0000000000000000E+00),
+    (n:7; m:1; C:-0.1002819712566000E-05; S:-0.6767487852285000E-06),
+    (n:7; m:2; C:0.2398536210615000E-04; S:-0.5923435955278000E-05),
+    (n:7; m:3; C:-0.1830060569179000E-04; S:-0.6959175902344000E-05),
+    (n:7; m:4; C:0.1234191645572000E-04; S:-0.1076091070571000E-04),
+    (n:7; m:5; C:0.2622926410531000E-05; S:-0.2334540460040000E-04),
+    (n:7; m:6; C:0.6533001670011000E-06; S:-0.4657876165441000E-05),
+    (n:7; m:7; C:0.5253806076850000E-05; S:-0.1446157261873000E-04),
+    (n:8; m:0; C:0.5837816714802000E-05; S:0.0000000000000000E+00),
+    (n:8; m:1; C:-0.5551031590555000E-05; S:-0.1297749359969000E-05),
+    (n:8; m:2; C:-0.1582389675747000E-04; S:0.7058103510092000E-05),
+    (n:8; m:3; C:-0.8859442867170000E-05; S:0.2196192625633000E-06),
+    (n:8; m:4; C:-0.3194952391972000E-05; S:0.1120092159359000E-04),
+    (n:8; m:5; C:0.3106475690666000E-05; S:0.4929318012282000E-05),
+    (n:8; m:6; C:0.1426255693255000E-05; S:-0.1405530131084000E-04),
+    (n:8; m:7; C:-0.1051420783871000E-04; S:0.1361356480304000E-04),
+    (n:8; m:8; C:0.3869101616042000E-05; S:0.9224802095227000E-05)
+  );
+
+  // Vesta: Dawn VESTA20H (JPL SHADR JGDWN_VES20H), degrees 2..8, fully normalised. R_ref = 265.0 km. Pole/spin already
+  // on the body row (Dawn-derived). Vesta is strongly non-spherical (Rheasilvia basin): C̄20=-0.032, C̄22~4e-3 -- the
+  // largest low-degree field of any body here, so the tesseral term genuinely bites for anything passing close.
+  VESTA_SH_REFR = 265.0;
+  VESTA_SH: array[0..41] of TSHCoef = (
+    (n:2; m:0; C:-0.3177939699038000E-01; S:0.0000000000000000E+00),
+    (n:2; m:1; C:-0.4939139723693000E-09; S:0.1596048836604000E-08),
+    (n:2; m:2; C:0.4184962374624000E-02; S:0.1245378620599000E-02),
+    (n:3; m:0; C:0.3310552979215000E-02; S:0.0000000000000000E+00),
+    (n:3; m:1; C:-0.2612671052339000E-02; S:-0.4338914699986000E-03),
+    (n:3; m:2; C:-0.7288907471268000E-03; S:-0.1173043933906000E-02),
+    (n:3; m:3; C:-0.1546624776698000E-03; S:0.2384935863669000E-02),
+    (n:4; m:0; C:0.3265599899336000E-02; S:0.0000000000000000E+00),
+    (n:4; m:1; C:0.4920396871261000E-03; S:0.1434888318128000E-03),
+    (n:4; m:2; C:-0.6300987993766000E-03; S:0.2630330871648000E-03),
+    (n:4; m:3; C:-0.1047527508626000E-03; S:-0.6699821437764000E-03),
+    (n:4; m:4; C:0.8663528462123000E-04; S:-0.2970368903764000E-03),
+    (n:5; m:0; C:-0.1202182459510000E-02; S:0.0000000000000000E+00),
+    (n:5; m:1; C:0.7502015580788000E-03; S:-0.2508023828499000E-03),
+    (n:5; m:2; C:0.2033043303707000E-03; S:0.6147958809249000E-04),
+    (n:5; m:3; C:0.6626676527554000E-03; S:-0.4370521656036000E-03),
+    (n:5; m:4; C:-0.2307769552926000E-04; S:-0.6047104715904000E-03),
+    (n:5; m:5; C:0.6450599419048001E-03; S:0.2556270919853000E-03),
+    (n:6; m:0; C:-0.9971479248165999E-04; S:0.0000000000000000E+00),
+    (n:6; m:1; C:-0.3689637507360000E-03; S:-0.5367043709220000E-03),
+    (n:6; m:2; C:-0.2874702927558000E-04; S:0.4269129512184000E-04),
+    (n:6; m:3; C:-0.1930585495620000E-04; S:0.1836955099421000E-03),
+    (n:6; m:4; C:-0.7825617515562001E-04; S:0.4575356542208000E-04),
+    (n:6; m:5; C:0.2967358835437000E-03; S:-0.1742565712364000E-03),
+    (n:6; m:6; C:0.4938771693044000E-03; S:0.4102369776849000E-03),
+    (n:7; m:0; C:0.1846938617921000E-03; S:0.0000000000000000E+00),
+    (n:7; m:1; C:0.1069887372241000E-03; S:0.7947893456014000E-03),
+    (n:7; m:2; C:0.3986149124117000E-03; S:0.1994042422627000E-03),
+    (n:7; m:3; C:-0.3605183252112000E-03; S:-0.5651392573033000E-04),
+    (n:7; m:4; C:0.3513479329314000E-04; S:0.3445571070230000E-03),
+    (n:7; m:5; C:-0.1874037699812000E-04; S:-0.1799836022671000E-03),
+    (n:7; m:6; C:0.1663646306986000E-05; S:-0.1220426815628000E-03),
+    (n:7; m:7; C:0.4089854666183000E-03; S:0.1072749359836000E-03),
+    (n:8; m:0; C:-0.8717683328542000E-04; S:0.0000000000000000E+00),
+    (n:8; m:1; C:0.9922336158901000E-04; S:-0.5133018502066000E-05),
+    (n:8; m:2; C:-0.6780160184482000E-04; S:-0.1505492250505000E-03),
+    (n:8; m:3; C:-0.2665429398226000E-04; S:0.2627075165168000E-03),
+    (n:8; m:4; C:-0.1218869905423000E-03; S:-0.1661918078467000E-03),
+    (n:8; m:5; C:0.1149373505558000E-03; S:-0.7661327837606000E-04),
+    (n:8; m:6; C:-0.3681758927829000E-03; S:0.1327099040798000E-03),
+    (n:8; m:7; C:0.1428100360275000E-03; S:-0.6924088904599999E-04),
+    (n:8; m:8; C:0.8734476308255000E-04; S:0.6889241489250000E-04)
+  );
+
+  // Titan: Cassini Durante et al. (2019), degree 5 only (SHTOOLS .sh, UNNORMALISED -> converted to 4pi here, C̄=C/N).
+  // R_ref = 2575.0 km. Pole/spin on the body row. The measured field is essentially J2 + the C̄22 tidal bulge (toward
+  // Saturn) plus a little deg 3-5; the zonal J2 already matched SAT441, so C̄22 is the real addition.
+  TITAN_SH_REFR = 2575.0;
+  TITAN_SH: array[0..17] of TSHCoef = (
+    (n:2; m:0; C:-1.4797850661e-05; S:0.0000000000e+00),
+    (n:2; m:1; C:3.9736809132e-07;  S:4.7405316158e-07),
+    (n:2; m:2; C:1.6088372820e-05;  S:-9.9148373663e-08),
+    (n:3; m:0; C:6.7655640669e-08;  S:0.0000000000e+00),
+    (n:3; m:1; C:1.3711395678e-06;  S:7.5084010092e-07),
+    (n:3; m:2; C:5.3576914005e-07;  S:-7.9047905909e-08),
+    (n:3; m:3; C:-1.5920445076e-06; S:-1.6207299943e-06),
+    (n:4; m:0; C:3.5900000000e-07;  S:0.0000000000e+00),
+    (n:4; m:1; C:-8.8754592995e-07; S:2.0133167770e-07),
+    (n:4; m:2; C:8.1840087976e-07;  S:8.8548291909e-07),
+    (n:4; m:3; C:-2.0079840637e-07; S:-1.0374584329e-06),
+    (n:4; m:4; C:-6.6260093571e-07; S:-5.6794365918e-07),
+    (n:5; m:0; C:-3.3708968324e-07; S:0.0000000000e+00),
+    (n:5; m:1; C:4.2155717826e-07;  S:3.1178882714e-07),
+    (n:5; m:2; C:-5.9937694923e-07; S:2.7188232749e-07),
+    (n:5; m:3; C:-4.8434397995e-07; S:-1.2108599499e-07),
+    (n:5; m:4; C:8.9901764570e-07;  S:-2.5686218448e-07),
+    (n:5; m:5; C:0.0000000000e+00;  S:0.0000000000e+00)
+  );
+
+  // Ganymede: Galileo + Juno, Gomez Casajus et al. (2022), degree 5 (SHTOOLS .sh, already 4pi-normalised -- NO convert,
+  // unlike Titan). Header was in METRES: R_ref = 2631.2 km (R0/1000), GM matches the table. Pole/spin on the body row.
+  GANYMEDE_SH_REFR = 2631.2;
+  GANYMEDE_SH: array[0..17] of TSHCoef = (
+    (n:2; m:0; C:-5.9481666729822490e-05; S:0.0000000000000000e+00),
+    (n:2; m:1; C:-3.3766563609913232e-06; S:-6.1986050169435276e-06),
+    (n:2; m:2; C:6.1285128043478334e-05;  S:1.7197782415101381e-06),
+    (n:3; m:0; C:5.5160195639357057e-08;  S:0.0000000000000000e+00),
+    (n:3; m:1; C:-4.9698217456524456e-07; S:-3.3882348715692328e-06),
+    (n:3; m:2; C:-2.4711885207789989e-06; S:-2.6314568327614359e-06),
+    (n:3; m:3; C:1.8619101932374921e-06;  S:6.2525611144089791e-06),
+    (n:4; m:0; C:-9.0408636268932709e-07; S:0.0000000000000000e+00),
+    (n:4; m:1; C:-1.9797137227962899e-07; S:-8.4280439886471865e-07),
+    (n:4; m:2; C:-6.6377861404504450e-07; S:-1.3241139272221871e-06),
+    (n:4; m:3; C:-2.3348283307665760e-06; S:4.5581734622510962e-07),
+    (n:4; m:4; C:1.1180294200477340e-06;  S:7.8085637413544157e-07),
+    (n:5; m:0; C:-4.3780393116219589e-07; S:0.0000000000000000e+00),
+    (n:5; m:1; C:3.4169877916212058e-07;  S:4.3229747227923152e-09),
+    (n:5; m:2; C:-2.2172197433757311e-07; S:-3.7773194611614182e-07),
+    (n:5; m:3; C:-1.7656828868304371e-06; S:5.7422551849006021e-08),
+    (n:5; m:4; C:-1.2640810555585419e-07; S:1.7636364743225471e-06),
+    (n:5; m:5; C:1.2538764170491970e-06;  S:3.6043297834403859e-07)
+  );
+
+  // Galilean moons (Galileo, Anderson 1998/2001) and Enceladus (Cassini, Iess 2014). SHTOOLS .sh, UNNORMALISED ->
+  // converted to 4pi here (C̄=C/N). Degree 2 for Io/Europa/Callisto (essentially J2 + the C̄22 tidal bulge toward
+  // Jupiter), degree 3 for Enceladus (+J3). Pole/spin + GM already on each body row.
+  IO_SH_REFR = 1821.6;
+  IO_SH: array[0..2] of TSHCoef = (
+    (n:2; m:0; C:-8.2551157593e-04; S:0.0000000000e+00),
+    (n:2; m:1; C:0.0000000000e+00;  S:0.0000000000e+00),
+    (n:2; m:2; C:8.5778835152e-04;  S:0.0000000000e+00)
+  );
+  EUROPA_SH_REFR = 1565.0;
+  EUROPA_SH: array[0..2] of TSHCoef = (
+    (n:2; m:0; C:-1.9476152084e-04; S:0.0000000000e+00),
+    (n:2; m:1; C:-1.0844353369e-06; S:1.0844353369e-05),
+    (n:2; m:2; C:2.0294432734e-04;  S:-1.8435400728e-05)
+  );
+  CALLISTO_SH_REFR = 2410.3;
+  CALLISTO_SH: array[0..2] of TSHCoef = (
+    (n:2; m:0; C:-1.4623884573e-05; S:0.0000000000e+00),
+    (n:2; m:1; C:0.0000000000e+00;  S:0.0000000000e+00),
+    (n:2; m:2; C:1.5801772053e-05;  S:-1.7041126723e-06)
+  );
+  ENCELADUS_SH_REFR = 254.2;
+  ENCELADUS_SH: array[0..6] of TSHCoef = (
+    (n:2; m:0; C:-2.4306953343e-03; S:0.0000000000e+00),
+    (n:2; m:1; C:7.1262893570e-06;  S:3.0828947436e-05),
+    (n:2; m:2; C:2.4009398360e-03;  S:3.5011769450e-05),
+    (n:3; m:0; C:4.3579303738e-05;  S:0.0000000000e+00),
+    (n:3; m:1; C:0.0000000000e+00;  S:0.0000000000e+00),
+    (n:3; m:2; C:0.0000000000e+00;  S:0.0000000000e+00),
+    (n:3; m:3; C:0.0000000000e+00;  S:0.0000000000e+00)
+  );
+
+  // Eros: NEAR-Shoemaker JGE15A01 (Miller et al. 2002), degrees 2..8, already 4pi-normalised (SHTOOLS default -- NO
+  // convert). R_ref = 16.0 km, dual NAIF codes. The coefficients are HUGE (C̄22=0.082 -- Eros is a 34x11 km cigar) and
+  // only slowly decaying. CAVEAT: the long axis (~17.7 km) sticks OUT of the R_ref=16 km Brillouin sphere, so the
+  // truncated series is only trustworthy well outside the body (fine past ~25-30 km; unreliable near the surface).
+  EROS_SH_REFR = 16.0;
+  EROS_SH: array[0..41] of TSHCoef = (
+    (n:2; m:0; C:-5.24618393097E-02; S:0.00000000000E+00),
+    (n:2; m:1; C:-1.63791296116E-06; S:-1.40003806164E-07),
+    (n:2; m:2; C:8.23993879858E-02;  S:-2.81095559016E-02),
+    (n:3; m:0; C:-1.41446537045E-03; S:0.00000000000E+00),
+    (n:3; m:1; C:4.06016475596E-03;  S:3.36846899323E-03),
+    (n:3; m:2; C:1.77591409489E-03;  S:-7.03803181478E-04),
+    (n:3; m:3; C:-1.04163999496E-02; S:-1.20714404820E-02),
+    (n:4; m:0; C:1.29314819962E-02;  S:0.00000000000E+00),
+    (n:4; m:1; C:-1.00350933584E-04; S:1.36939929063E-04),
+    (n:4; m:2; C:-1.74688018325E-02; S:4.62909953071E-03),
+    (n:4; m:3; C:-3.00201192046E-04; S:-1.19207164256E-04),
+    (n:4; m:4; C:1.74551668902E-02;  S:-9.10529276948E-03),
+    (n:5; m:0; C:6.58933858013E-04;  S:0.00000000000E+00),
+    (n:5; m:1; C:-2.76507316000E-03; S:-1.21764377610E-03),
+    (n:5; m:2; C:-7.83400083663E-04; S:3.81291649798E-04),
+    (n:5; m:3; C:4.57612464839E-03;  S:3.53948354414E-03),
+    (n:5; m:4; C:4.96909573768E-04;  S:-6.98062572977E-04),
+    (n:5; m:5; C:-1.02064314816E-02; S:-5.83950568922E-03),
+    (n:6; m:0; C:-4.97836830437E-03; S:0.00000000000E+00),
+    (n:6; m:1; C:-2.43584360884E-05; S:-1.23806736405E-04),
+    (n:6; m:2; C:6.54236012916E-03;  S:-1.19068956912E-03),
+    (n:6; m:3; C:2.87760856777E-04;  S:7.54297057642E-05),
+    (n:6; m:4; C:-5.64696275765E-03; S:1.76871415479E-03),
+    (n:6; m:5; C:-4.87912268921E-04; S:4.79265798636E-05),
+    (n:6; m:6; C:5.08559874845E-03;  S:-1.60218963559E-03),
+    (n:7; m:0; C:-4.56465554646E-04; S:0.00000000000E+00),
+    (n:7; m:1; C:1.72212842068E-03;  S:7.04232300006E-04),
+    (n:7; m:2; C:3.83562866553E-04;  S:-1.98217150641E-04),
+    (n:7; m:3; C:-2.47156882972E-03; S:-1.43634284583E-03),
+    (n:7; m:4; C:-2.42836745686E-04; S:3.26817153996E-04),
+    (n:7; m:5; C:3.77380680782E-03;  S:1.90051572734E-03),
+    (n:7; m:6; C:3.24908737435E-05;  S:-4.95855917059E-04),
+    (n:7; m:7; C:-6.76682521427E-03; S:-2.19813817734E-03),
+    (n:8; m:0; C:2.63212620638E-03;  S:0.00000000000E+00),
+    (n:8; m:1; C:-5.00251571436E-05; S:-1.80509056174E-05),
+    (n:8; m:2; C:-3.13715054851E-03; S:2.80086999721E-05),
+    (n:8; m:3; C:-3.08700030069E-04; S:-3.19178761046E-05),
+    (n:8; m:4; C:2.76703659050E-03;  S:-4.80859248402E-04),
+    (n:8; m:5; C:4.82584868144E-04;  S:-1.02494392443E-04),
+    (n:8; m:6; C:-2.54134608560E-03; S:2.38751937165E-05),
+    (n:8; m:7; C:-1.90465417509E-04; S:-7.00412168746E-05),
+    (n:8; m:8; C:2.26721252014E-03;  S:1.37112588975E-03)
+  );
+
 function Fig(Req, J2, J3, J4, PoleRA, PoleRARate, PoleDec, PoleDecRate, PoleW, PoleWRate: Double): TFig;
 begin
   Result.Req:=Req; Result.J2:=J2; Result.J3:=J3; Result.J4:=J4;
@@ -3866,6 +4565,29 @@ begin
     PoleRARate:=F.PoleRARate; PoleDecRate:=F.PoleDecRate; PoleWRate:=F.PoleWRate;
    end;
   Inc(BCN);
+end;
+
+procedure PutSHDefault(Code: Int64; RefR: Double; const SH: array of TSHCoef; Deg: Int64 = 8);
+// Stamp a spherical-harmonic default field (degrees 2..Deg) onto the matching BodyConstants row: RefRadius, GravDeg,
+// and the C̄/S̄ block into Chi. Called from InitBodyConstants after the Add() sweep; the body then routes to the
+// tesseral (Pines) path at scene load. Deg defaults to 8 (the full-field bodies); low-degree solutions (e.g. the
+// degree-5 spacecraft moon fields) pass their true degree so the evaluator doesn't loop over empty high degrees.
+var j, c, iC, iSin: Int64;
+begin
+  for j := 0 to BCN-1 do
+   if BodyConstants[j].NAIFCode = Code then
+    begin
+     BodyConstants[j].RefRadius := RefR;
+     BodyConstants[j].GravDeg := Deg;
+     SetLength(BodyConstants[j].Chi, GRAV_NCOEF);
+     for c := Low(SH) to High(SH) do
+      begin
+       GravChiIndex(SH[c].n, SH[c].m, iC, iSin);
+       BodyConstants[j].Chi[iC] := SH[c].C;
+       if iSin >= 0 then BodyConstants[j].Chi[iSin] := SH[c].S;
+      end;
+     Break;
+    end;
 end;
 
 procedure InitBodyConstants;
@@ -5009,6 +5731,44 @@ begin
       BodyConstants[i].AtmScaleH:=BODY_ATMOSPHERES[si].ScaleH;
       Break;
      end;
+  // Higher-zonal (gas-giant) harmonics -- same one-off linear match. Builds the normalised C̄n0 diagonal of Chi from the
+  // row's own J2/J3/J4 plus the J6/J8 supplied here; C̄n0 sits at index n*n-4 (see GRAV_NCOEF packing). RefR MUST be the
+  // radius those J's are referenced to (= the row's Req here), since BSPXFile.Init hands it to SetOblateness as the
+  // (R/r)^n base. Zonal-only, so these rows get no GJtesseral entry (GravIsTesseral returns False).
+  for si:=Low(BODY_HARMONICS) to High(BODY_HARMONICS) do
+   for i:=0 to BCN-1 do
+    if BodyConstants[i].NAIFCode=BODY_HARMONICS[si].Code then
+     with BodyConstants[i] do
+      begin
+       RefRadius:=BODY_HARMONICS[si].RefR;
+       GravDeg:=BODY_HARMONICS[si].Deg;
+       SetLength(Chi, GRAV_NCOEF);                       // zero-filled; only the even m=0 diagonal is set below
+       Chi[0] :=-J2/Sqrt(5.0);                           // C̄20  (index 2*2-4)
+       Chi[5] :=-J3/Sqrt(7.0);                           // C̄30  (index 3*3-4; tiny/zero for the giants)
+       Chi[12]:=-J4/Sqrt(9.0);                           // C̄40  (index 4*4-4)
+       Chi[32]:=-BODY_HARMONICS[si].J6/Sqrt(13.0);       // C̄60  (index 6*6-4)
+       Chi[60]:=-BODY_HARMONICS[si].J8/Sqrt(17.0);       // C̄80  (index 8*8-4)
+       Break;
+      end;
+  // Full tesseral default fields (degrees 2..8) for the solid bodies with a solution -- the whole C̄/S̄ block, so at
+  // scene load these route to the Pines path (GSH) instead of the zonal GJ2. Others stay zonal-only or spherical.
+  PutSHDefault(399, EARTH_SH_REFR,   EARTH_SH);     // Earth   -- EIGEN-6C4
+  PutSHDefault(199, MERCURY_SH_REFR, MERCURY_SH);   // Mercury -- MESS160A
+  PutSHDefault(299, VENUS_SH_REFR,   VENUS_SH);     // Venus   -- SHGJ180U
+  PutSHDefault(499, MARS_SH_REFR,    MARS_SH);      // Mars    -- JGMRO_120F
+  PutSHDefault(301, MOON_SH_REFR,    MOON_SH);      // Moon    -- GRAIL JGGRX_0900D (PA-frame caveat, see const)
+  PutSHDefault(2000001,  CERES_SH_REFR, CERES_SH);  // Ceres   -- Dawn CERES70E (dual NAIF codes)
+  PutSHDefault(20000001, CERES_SH_REFR, CERES_SH);
+  PutSHDefault(2000004,  VESTA_SH_REFR, VESTA_SH);  // Vesta   -- Dawn VESTA20H (dual NAIF codes)
+  PutSHDefault(20000004, VESTA_SH_REFR, VESTA_SH);
+  PutSHDefault(606,      TITAN_SH_REFR,    TITAN_SH,    5);   // Titan    -- Cassini Durante2019 (degree 5)
+  PutSHDefault(503,      GANYMEDE_SH_REFR, GANYMEDE_SH, 5);   // Ganymede -- Galileo+Juno Gomez Casajus 2022 (degree 5)
+  PutSHDefault(501,      IO_SH_REFR,       IO_SH,       2);   // Io       -- Galileo Anderson2001 (degree 2)
+  PutSHDefault(502,      EUROPA_SH_REFR,   EUROPA_SH,   2);   // Europa   -- Galileo Anderson1998 (degree 2)
+  PutSHDefault(504,      CALLISTO_SH_REFR, CALLISTO_SH, 2);   // Callisto -- Galileo Anderson2001 (degree 2)
+  PutSHDefault(602,      ENCELADUS_SH_REFR,ENCELADUS_SH,3);   // Enceladus-- Cassini Iess2014 (degree 3)
+  PutSHDefault(2000433,  EROS_SH_REFR,     EROS_SH);          // Eros     -- NEAR JGE15A01 (degree 8, dual NAIF codes)
+  PutSHDefault(20000433, EROS_SH_REFR,     EROS_SH);
 end;
 
 function BodyConstIndex(NAIFCode: Int64): Int64;

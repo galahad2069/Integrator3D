@@ -1335,6 +1335,19 @@ var
   kbEp: array[0..15] of Double;   // node epochs -- must hold up to NumCoef (6 for KBOs, 11 for main-belt asteroids)
   kbState: array[0..5] of Double;
   kbSt: TState4DArray;
+  shSuper: string;   // Stage B/C: bodies whose freshly parsed head J2/J3/J4 are outranked by their default harmonic field
+  procedure NoteSuperseded(Code: Int64);
+  // A body carrying a default spherical-harmonic field (GravDeg>0) keeps ALL its zonals in the Chi diagonal, and
+  // TBSPXFile.Init unpacks Jn from there (Jn = -C̄n0*sqrt(2n+1)) in preference to the head J2/J3/J4. So a head J
+  // written here by the DE header (Stage B) or a satellite BSP comment (Stage C) is stored but never used. Collect
+  // the affected bodies so the log says so instead of silently ignoring the user's chosen source file.
+  var nm: string;
+  begin
+    nm:=string(BSPGetTargetName(Code));
+    if Pos(nm, shSuper)>0 then Exit;   // Stage C walks every selected file, so a planet can be hit more than once
+    if shSuper<>'' then shSuper:=shSuper+', ';
+    shSuper:=shSuper+nm;
+  end;
   function ClenshawCheb(C: PDouble; N: Int64; Tau: Double): Double;   // sum_{k} C[k]*T_k(Tau), C_0 full (SPK type-2 basis)
   var b0, b1, b2, tw: Double; k: Int64;
   begin
@@ -1883,6 +1896,7 @@ begin
        // Stage B: override the general trailer (AU/CLIGHT/BETA/GAMMA) + Sun/Earth oblateness from the
        // user-selected DE header (header.4xx) -- so a build from a non-DE440 release uses its own values.
        // GM/GMS stay from the tpc (the header's GM's are AU^3/day^2); POLTIM stays the seeded J2000.
+       shSuper:='';
        if (hdrPath<>'') and ParseDEHeaderConsts(hdrPath, hAU,hCL,hBETA,hGAMMA,hASUN,hJ2S,hJ3S,hJ4S,hRE,hJ2E,hJ3E,hJ4E) then
         begin
          if not IsNaN(hAU)    then BSPXCnst[NumTargets].AU:=hAU;
@@ -1891,10 +1905,12 @@ begin
          if not IsNaN(hGAMMA) then BSPXCnst[NumTargets].GAMMA:=hGAMMA;
          k:=IdxOfTarget(BSPXDesc, 10);    // Sun
          if k>=0 then begin if not IsNaN(hASUN) then BSPXCnst[k].Req:=hASUN; if not IsNaN(hJ2S) then BSPXCnst[k].J2:=hJ2S;
-                            if not IsNaN(hJ3S) then BSPXCnst[k].J3:=hJ3S;   if not IsNaN(hJ4S) then BSPXCnst[k].J4:=hJ4S; end;
+                            if not IsNaN(hJ3S) then BSPXCnst[k].J3:=hJ3S;   if not IsNaN(hJ4S) then BSPXCnst[k].J4:=hJ4S;
+                            if (not IsNaN(hJ2S)) and (BSPXCnst[k].GravDeg>0.0) then NoteSuperseded(10); end;
          k:=IdxOfTarget(BSPXDesc, 399);   // Earth
          if k>=0 then begin if not IsNaN(hRE) then BSPXCnst[k].Req:=hRE;   if not IsNaN(hJ2E) then BSPXCnst[k].J2:=hJ2E;
-                            if not IsNaN(hJ3E) then BSPXCnst[k].J3:=hJ3E;   if not IsNaN(hJ4E) then BSPXCnst[k].J4:=hJ4E; end;
+                            if not IsNaN(hJ3E) then BSPXCnst[k].J3:=hJ3E;   if not IsNaN(hJ4E) then BSPXCnst[k].J4:=hJ4E;
+                            if (not IsNaN(hJ2E)) and (BSPXCnst[k].GravDeg>0.0) then NoteSuperseded(399); end;
         end;
        if gmPath='' then Memo.Lines.Append('No GM file selected -- default DE440 GMs used.')
        else Memo.Lines.Append('GM values applied from: '+ExtractFileName(gmPath));
@@ -1912,8 +1928,15 @@ begin
              if sReq<>0.0 then BSPXCnst[k].Req:=sReq;
              BSPXCnst[k].J2:=sJ2; BSPXCnst[k].J3:=sJ3; BSPXCnst[k].J4:=sJ4;
              BSPXCnst[k].PoleRA:=sRA; BSPXCnst[k].PoleDec:=sDec;
+             if BSPXCnst[k].GravDeg>0.0 then NoteSuperseded(pn*100+99);
             end;
           end;
+       // Report (once) the bodies whose parsed head J's the harmonic field outranks -- see NoteSuperseded. Until
+       // BSPMerge can read external gfc/SHADR field files, the only way to change these bodies' zonals is the
+       // CelestialMechanics.BodyConstants default table.
+       if shSuper<>'' then
+        Memo.Lines.Append('Note: head J2/J3/J4 stored but NOT used for '+shSuper+' -- these bodies carry a default '+
+                          'spherical-harmonic field, and the integrator takes every zonal from its coefficients instead.');
        // Stage D: SPICE text PCK (the user-selected pck*.tpc) -- the canonical source for body RADII + pole
        // orientation + rotation. Fills radius + J2000 pole for bodies the DE files don't cover (moons/dwarfs)
        // WITHOUT overwriting the DE-consistent planet figures (their Req/pole must match the J2 term), and
